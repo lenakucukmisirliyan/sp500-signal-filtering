@@ -9,20 +9,23 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from dotenv import load_dotenv
 
 
-# Projenin ana klasörünü bulur.
+# Projenin ana klasorunu bulur.
 PROJE_KLASORU = Path(__file__).resolve().parent.parent
 
-# Ana klasördeki .env dosyasını okur.
+# Ana klasordeki .env dosyasini okur.
 load_dotenv(PROJE_KLASORU / ".env")
 
 
 def alpaca_baglantisi_olustur():
+    """Alpaca Market Data istemcisini olusturur."""
+
     api_anahtari = os.getenv("ALPACA_API_KEY")
     gizli_anahtar = os.getenv("ALPACA_SECRET_KEY")
 
     if not api_anahtari or not gizli_anahtar:
         raise ValueError(
-            "ALPACA_API_KEY veya ALPACA_SECRET_KEY .env dosyasında bulunamadı."
+            "ALPACA_API_KEY veya ALPACA_SECRET_KEY "
+            ".env dosyasinda bulunamadi."
         )
 
     return StockHistoricalDataClient(
@@ -31,30 +34,73 @@ def alpaca_baglantisi_olustur():
     )
 
 
-def ornek_veri_indir():
+def fiyat_verisi_indir(
+    semboller,
+    baslangic,
+    bitis,
+    zaman_araligi_dakika=5
+):
+    """Belirtilen sembol ve tarihler icin fiyat verisi indirir."""
+
     istemci = alpaca_baglantisi_olustur()
 
+    veri_kaynagi = os.getenv(
+        "ALPACA_FEED",
+        "sip"
+    ).lower()
+
+    fiyat_duzeltmesi = os.getenv(
+        "ALPACA_ADJUSTMENT",
+        "all"
+    ).lower()
+
     istek = StockBarsRequest(
-        symbol_or_symbols=["AAPL"],
-        timeframe=TimeFrame(5, TimeFrameUnit.Minute),
-        start=datetime(2023, 1, 3, tzinfo=timezone.utc),
-        end=datetime(2023, 1, 6, tzinfo=timezone.utc),
-        feed=DataFeed.SIP,
-        adjustment=Adjustment.ALL
+        symbol_or_symbols=semboller,
+        timeframe=TimeFrame(
+            zaman_araligi_dakika,
+            TimeFrameUnit.Minute
+        ),
+        start=baslangic,
+        end=bitis,
+        feed=DataFeed(veri_kaynagi),
+        adjustment=Adjustment(fiyat_duzeltmesi)
     )
 
     sonuc = istemci.get_stock_bars(istek)
 
-    veri = sonuc.df.reset_index()
+    return sonuc.df.reset_index()
 
-    print("İndirilen ilk 10 satır:")
+
+def ornek_veri_indir():
+    """AAPL icin kucuk bir ornek veri indirir."""
+
+    veri = fiyat_verisi_indir(
+        semboller=["AAPL"],
+        baslangic=datetime(
+            2023, 1, 3,
+            tzinfo=timezone.utc
+        ),
+        bitis=datetime(
+            2023, 1, 6,
+            tzinfo=timezone.utc
+        ),
+        zaman_araligi_dakika=5
+    )
+
+    print("Indirilen ilk 10 satir:")
     print(veri.head(10))
 
-    print(f"\nToplam satır sayısı: {len(veri)}")
+    print(f"\nToplam satir sayisi: {len(veri)}")
 
     if not veri.empty:
-        print(f"İlk bar zamanı: {veri['timestamp'].min()}")
-        print(f"Son bar zamanı: {veri['timestamp'].max()}")
+        print(
+            f"Ilk bar zamani: "
+            f"{veri['timestamp'].min()}"
+        )
+        print(
+            f"Son bar zamani: "
+            f"{veri['timestamp'].max()}"
+        )
 
     return veri
 

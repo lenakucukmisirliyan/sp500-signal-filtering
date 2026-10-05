@@ -1,9 +1,21 @@
+import argparse
+from datetime import datetime, timezone
+
 import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
 
-from src.alpaca_verisi import ornek_veri_indir
+from src.alpaca_verisi import fiyat_verisi_indir
 from src.veritabani import veritabani_baglantisi_olustur
+
+
+def tarih_metnini_cevir(tarih_metni):
+    """YYYY-AA-GG bicimindeki tarihi UTC datetime degerine cevirir."""
+
+    return datetime.strptime(
+        tarih_metni,
+        "%Y-%m-%d"
+    ).replace(tzinfo=timezone.utc)
 
 
 def menkul_kiymet_id_bul(imlec, sembol):
@@ -26,15 +38,6 @@ def menkul_kiymet_id_bul(imlec, sembol):
         )
 
     return sonuc[0]
-
-
-def bos_degeri_duzelt(deger):
-    """Pandas bos degerlerini PostgreSQL icin None degerine cevirir."""
-
-    if pd.isna(deger):
-        return None
-
-    return deger
 
 
 def fiyat_verilerini_hazirla(veri, menkul_kiymet_id):
@@ -71,14 +74,26 @@ def fiyat_verilerini_hazirla(veri, menkul_kiymet_id):
     return kayitlar
 
 
-def fiyat_verilerini_aktar():
-    """AAPL verilerini indirir ve PostgreSQL'e aktarir."""
+def fiyat_verilerini_aktar(sembol, baslangic, bitis):
+    """Belirtilen sembol ve tarih araligini PostgreSQL'e aktarir."""
 
     baglanti = None
     imlec = None
 
     try:
-        veri = ornek_veri_indir()
+        sembol = sembol.upper()
+
+        print(
+            f"Veri indiriliyor: {sembol} | "
+            f"{baslangic.date()} - {bitis.date()}"
+        )
+
+        veri = fiyat_verisi_indir(
+            semboller=[sembol],
+            baslangic=baslangic,
+            bitis=bitis,
+            zaman_araligi_dakika=5
+        )
 
         if veri.empty:
             print("Aktarilacak veri bulunamadi.")
@@ -89,7 +104,7 @@ def fiyat_verilerini_aktar():
 
         menkul_kiymet_id = menkul_kiymet_id_bul(
             imlec,
-            "AAPL"
+            sembol
         )
 
         kayitlar = fiyat_verilerini_hazirla(
@@ -132,7 +147,7 @@ def fiyat_verilerini_aktar():
 
         baglanti.commit()
 
-        print("\nVeri aktarimi basarili.")
+        print("Veri aktarimi basarili.")
         print(f"Hazirlanan satir: {len(kayitlar)}")
         print(f"Yeni eklenen satir: {eklenen_satir_sayisi}")
 
@@ -150,5 +165,43 @@ def fiyat_verilerini_aktar():
             baglanti.close()
 
 
+def komut_satiri_argumanlarini_al():
+    """Terminalden sembol ve tarih bilgilerini alir."""
+
+    parser = argparse.ArgumentParser(
+        description="Alpaca fiyat verilerini PostgreSQL'e aktarir."
+    )
+
+    parser.add_argument(
+        "--sembol",
+        required=True,
+        help="Hisse sembolu. Ornek: AAPL"
+    )
+
+    parser.add_argument(
+        "--baslangic",
+        required=True,
+        help="Baslangic tarihi. Bicim: YYYY-AA-GG"
+    )
+
+    parser.add_argument(
+        "--bitis",
+        required=True,
+        help="Bitis tarihi. Bicim: YYYY-AA-GG"
+    )
+
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    fiyat_verilerini_aktar()
+    argumanlar = komut_satiri_argumanlarini_al()
+
+    fiyat_verilerini_aktar(
+        sembol=argumanlar.sembol,
+        baslangic=tarih_metnini_cevir(
+            argumanlar.baslangic
+        ),
+        bitis=tarih_metnini_cevir(
+            argumanlar.bitis
+        )
+    )
