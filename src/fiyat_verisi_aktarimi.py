@@ -133,17 +133,19 @@ def fiyat_verilerini_aktar(sembol, baslangic, bitis):
                 bar_zamani,
                 zaman_araligi_dakika
             )
-            DO NOTHING;
+            DO NOTHING
+            RETURNING 1;
         """
 
-        execute_values(
+        eklenen_kayitlar = execute_values(
             imlec,
             ekleme_sorgusu,
             kayitlar,
-            page_size=1000
+            page_size=1000,
+            fetch=True
         )
 
-        eklenen_satir_sayisi = imlec.rowcount
+        eklenen_satir_sayisi = len(eklenen_kayitlar)
 
         baglanti.commit()
 
