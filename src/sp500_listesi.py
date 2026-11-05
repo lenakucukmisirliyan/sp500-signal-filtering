@@ -19,7 +19,6 @@ CIKTI_DOSYA = (
 
 
 def sembolleri_ayir(sembol_metni):
-    """Virgulle ayrilmis sembolleri bir kumeye donusturur."""
 
     return {
         sembol.strip()
@@ -48,7 +47,6 @@ def tarihteki_sembolleri_bul(veri, hedef_tarih):
 
 
 def analiz_sembollerini_hazirla():
-    """Analiz doneminde endekste bulunan tum sembolleri belirler."""
 
     baslangic_tarihi = pd.Timestamp("2023-01-03")
     bitis_tarihi = pd.Timestamp("2024-03-28")
@@ -67,11 +65,6 @@ def analiz_sembollerini_hazirla():
         baslangic_tarihi
     )
 
-    bitis_sembolleri = tarihteki_sembolleri_bul(
-        veri,
-        bitis_tarihi
-    )
-
     donem_satirlari = veri[
         (veri["date"] > baslangic_tarihi)
         & (veri["date"] <= bitis_tarihi)
@@ -84,14 +77,6 @@ def analiz_sembollerini_hazirla():
             sembolleri_ayir(sembol_metni)
         )
 
-    eklenen_semboller = (
-        bitis_sembolleri - baslangic_sembolleri
-    )
-
-    cikan_semboller = (
-        baslangic_sembolleri - bitis_sembolleri
-    )
-
     cikti = pd.DataFrame({
         "sembol": sorted(tum_semboller)
     })
@@ -100,31 +85,6 @@ def analiz_sembollerini_hazirla():
         CIKTI_DOSYA,
         index=False,
         encoding="utf-8"
-    )
-
-    print(
-        f"2023-01-03 endeks sembolu: "
-        f"{len(baslangic_sembolleri)}"
-    )
-
-    print(
-        f"2024-03-28 endeks sembolu: "
-        f"{len(bitis_sembolleri)}"
-    )
-
-    print(
-        f"Donem boyunca gorulen toplam sembol: "
-        f"{len(tum_semboller)}"
-    )
-
-    print(
-        f"Baslangica gore eklenen sembol: "
-        f"{len(eklenen_semboller)}"
-    )
-
-    print(
-        f"Baslangica gore cikan sembol: "
-        f"{len(cikan_semboller)}"
     )
 
     print(

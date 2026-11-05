@@ -1,7 +1,3 @@
--- Her menkul kiymetin her islem gunundeki
--- veri kapsamini ve kalite durumunu tutar.
-
-
 CREATE TABLE IF NOT EXISTS gunluk_veri_kalitesi (
     gunluk_kalite_id BIGINT
         GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -67,82 +63,11 @@ CREATE TABLE IF NOT EXISTS gunluk_veri_kalitesi (
 
 -- Dosya yeniden calistirilirsa onceki kalite
 -- sonuclari silinerek yeniden hesaplanir.
+
 TRUNCATE TABLE gunluk_veri_kalitesi
 RESTART IDENTITY;
 
-
-WITH beklenen_sembol_gunleri AS (
-    -- Tarihsel S&P 500 uyeleri
-    SELECT
-        eu.menkul_kiymet_id,
-        pt.islem_tarihi,
-        pt.beklenen_bar_sayisi
-    FROM endeks_uyelikleri eu
-    INNER JOIN piyasa_takvimi pt
-        ON pt.islem_tarihi >= eu.baslangic_tarihi
-        AND pt.islem_tarihi < eu.bitis_tarihi
-    WHERE eu.endeks_kodu = 'SP500'
-
-    UNION ALL
-
-    -- SPY, S&P 500 uyesi degildir.
-    -- Piyasa kosullarini gostermek icin her gun eklenir.
-    SELECT
-        mk.menkul_kiymet_id,
-        pt.islem_tarihi,
-        pt.beklenen_bar_sayisi
-    FROM menkul_kiymetler mk
-    CROSS JOIN piyasa_takvimi pt
-    WHERE mk.sembol = 'SPY'
-),
-
-bulunan_barlar AS (
-    -- Yalnizca resmi NYSE seansindaki barlar sayilir.
-    SELECT
-        hfv.menkul_kiymet_id,
-        pt.islem_tarihi,
-        COUNT(*)::SMALLINT AS bulunan_bar_sayisi
-    FROM ham_fiyat_verileri hfv
-    INNER JOIN piyasa_takvimi pt
-        ON hfv.bar_zamani
-            >= pt.piyasa_acilis_zamani
-        AND hfv.bar_zamani
-            < pt.piyasa_kapanis_zamani
-    WHERE hfv.zaman_araligi_dakika = 5
-    GROUP BY
-        hfv.menkul_kiymet_id,
-        pt.islem_tarihi
-),
-
-kalite_hesabi AS (
-    SELECT
-        bsg.menkul_kiymet_id,
-        bsg.islem_tarihi,
-        bsg.beklenen_bar_sayisi,
-
-        COALESCE(
-            bb.bulunan_bar_sayisi,
-            0
-        )::SMALLINT AS bulunan_bar_sayisi,
-
-        (
-            bsg.beklenen_bar_sayisi
-            - COALESCE(bb.bulunan_bar_sayisi, 0)
-        )::SMALLINT AS eksik_bar_sayisi,
-
-        (
-            COALESCE(bb.bulunan_bar_sayisi, 0)::NUMERIC
-            / bsg.beklenen_bar_sayisi
-        )::NUMERIC(7, 4) AS kapsama_orani
-
-    FROM beklenen_sembol_gunleri bsg
-
-    LEFT JOIN bulunan_barlar bb
-        ON bb.menkul_kiymet_id =
-            bsg.menkul_kiymet_id
-        AND bb.islem_tarihi =
-            bsg.islem_tarihi
-)
+-- 1. S&P 500 uyelerinin beklenen islem gunlerini ekler.
 
 INSERT INTO gunluk_veri_kalitesi (
     menkul_kiymet_id,
@@ -154,22 +79,91 @@ INSERT INTO gunluk_veri_kalitesi (
     kalite_durumu
 )
 SELECT
+    eu.menkul_kiymet_id,
+    pt.islem_tarihi,
+    pt.beklenen_bar_sayisi,
+    0,
+    pt.beklenen_bar_sayisi,
+    0,
+    'ELENDI'
+FROM
+    endeks_uyelikleri eu,
+    piyasa_takvimi pt
+WHERE pt.islem_tarihi >= eu.baslangic_tarihi
+  AND pt.islem_tarihi < eu.bitis_tarihi
+  AND eu.endeks_kodu = 'SP500';
+
+
+-- 2. SPY icin butun islem gunlerini ekler.
+
+INSERT INTO gunluk_veri_kalitesi (
     menkul_kiymet_id,
     islem_tarihi,
     beklenen_bar_sayisi,
     bulunan_bar_sayisi,
     eksik_bar_sayisi,
     kapsama_orani,
+    kalite_durumu
+)
+SELECT
+    mk.menkul_kiymet_id,
+    pt.islem_tarihi,
+    pt.beklenen_bar_sayisi,
+    0,
+    pt.beklenen_bar_sayisi,
+    0,
+    'ELENDI'
+FROM
+    menkul_kiymetler mk,
+    piyasa_takvimi pt
+WHERE mk.sembol = 'SPY';
 
+
+-- 3. Her menkul kiymet ve gun icin bulunan barlari sayar.
+
+UPDATE gunluk_veri_kalitesi gvk
+SET bulunan_bar_sayisi = sayim.bulunan_bar_sayisi
+FROM (
+    SELECT
+        hfv.menkul_kiymet_id,
+        pt.islem_tarihi,
+        COUNT(*)::SMALLINT AS bulunan_bar_sayisi
+    FROM
+        ham_fiyat_verileri hfv,
+        piyasa_takvimi pt
+    WHERE hfv.bar_zamani >= pt.piyasa_acilis_zamani
+      AND hfv.bar_zamani < pt.piyasa_kapanis_zamani
+      AND hfv.zaman_araligi_dakika = 5
+    GROUP BY
+        hfv.menkul_kiymet_id,
+        pt.islem_tarihi
+) sayim
+WHERE gvk.menkul_kiymet_id = sayim.menkul_kiymet_id
+  AND gvk.islem_tarihi = sayim.islem_tarihi;
+
+
+-- 4. Eksik bar sayisini ve kapsama oranini hesaplar.
+
+UPDATE gunluk_veri_kalitesi
+SET
+    eksik_bar_sayisi =
+        beklenen_bar_sayisi - bulunan_bar_sayisi,
+
+    kapsama_orani =
+        bulunan_bar_sayisi::NUMERIC
+        / beklenen_bar_sayisi;
+
+
+-- 5. Gunluk kalite durumunu belirler.
+
+UPDATE gunluk_veri_kalitesi
+SET kalite_durumu =
     CASE
-        WHEN bulunan_bar_sayisi =
-             beklenen_bar_sayisi
+        WHEN bulunan_bar_sayisi = beklenen_bar_sayisi
             THEN 'TAM'
 
         WHEN kapsama_orani >= 0.80
             THEN 'DOLDURULABILIR'
 
         ELSE 'ELENDI'
-    END AS kalite_durumu
-
-FROM kalite_hesabi;
+    END;

@@ -54,14 +54,12 @@ def piyasa_takvimini_aktar():
                 erken_kapanis_mi =
                     EXCLUDED.erken_kapanis_mi;
             """,
-            kayitlar,
-            page_size=500,
+            kayitlar
         )
 
         baglanti.commit()
 
         print("Piyasa takvimi aktarildi.")
-        print(f"Islem gunu sayisi: {len(kayitlar)}")
 
     except Exception:
         if baglanti is not None:

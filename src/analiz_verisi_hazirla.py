@@ -1,5 +1,3 @@
-import argparse
-
 import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
@@ -378,31 +376,3 @@ def bir_sembolu_hazirla(sembol):
 
         if baglanti is not None:
             baglanti.close()
-
-
-def komut_satiri_argumanlarini_al():
-    """Terminalden hazirlanacak sembolleri alir."""
-
-    parser = argparse.ArgumentParser(
-        description=(
-            "Temiz analiz fiyat verilerini hazirlar."
-        )
-    )
-
-    parser.add_argument(
-        "--semboller",
-        nargs="+",
-        required=True,
-        help="Ornek: AAPL SPY"
-    )
-
-    return parser.parse_args()
-
-
-if __name__ == "__main__":
-    argumanlar = (
-        komut_satiri_argumanlarini_al()
-    )
-
-    for sembol in argumanlar.semboller:
-        bir_sembolu_hazirla(sembol)

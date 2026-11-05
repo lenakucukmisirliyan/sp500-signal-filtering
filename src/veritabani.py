@@ -5,15 +5,12 @@ import psycopg2
 from dotenv import load_dotenv
 
 
-# Projenin ana klasorunu bulur.
 PROJE_KLASORU = Path(__file__).resolve().parent.parent
 
-# Ana klasordeki .env dosyasini okur.
 load_dotenv(PROJE_KLASORU / ".env")
 
 
 def veritabani_baglantisi_olustur():
-    """PostgreSQL veritabanina baglanti olusturur."""
 
     host = os.getenv("POSTGRES_HOST")
     port = os.getenv("POSTGRES_PORT")
@@ -49,44 +46,3 @@ def veritabani_baglantisi_olustur():
         password=parola,
         connect_timeout=10,
     )
-
-
-def baglantiyi_test_et():
-    """Baglantiyi test eder ve temel sunucu bilgilerini gosterir."""
-
-    baglanti = None
-    imlec = None
-
-    try:
-        baglanti = veritabani_baglantisi_olustur()
-        imlec = baglanti.cursor()
-
-        imlec.execute(
-            """
-            SELECT
-                current_database(),
-                current_user,
-                CURRENT_TIMESTAMP;
-            """
-        )
-
-        veritabani, kullanici, sunucu_zamani = imlec.fetchone()
-
-        print("PostgreSQL baglantisi basarili.")
-        print(f"Veritabani: {veritabani}")
-        print(f"Kullanici: {kullanici}")
-        print(f"Sunucu zamani: {sunucu_zamani}")
-
-    except (psycopg2.Error, ValueError) as hata:
-        print(f"Baglanti hatasi: {hata}")
-
-    finally:
-        if imlec is not None:
-            imlec.close()
-
-        if baglanti is not None:
-            baglanti.close()
-
-
-if __name__ == "__main__":
-    baglantiyi_test_et()

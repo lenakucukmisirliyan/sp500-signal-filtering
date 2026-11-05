@@ -22,7 +22,6 @@ load_dotenv(PROJE_KLASORU / ".env")
 
 
 def alpaca_varliklarini_al():
-    """Alpaca'da bulunan tum varlik tanimlarini getirir."""
 
     api_anahtari = os.getenv("ALPACA_API_KEY")
     gizli_anahtar = os.getenv("ALPACA_SECRET_KEY")
@@ -47,7 +46,6 @@ def alpaca_varliklarini_al():
 
 
 def sembol_listesini_oku():
-    """Analiz sembollerini CSV dosyasindan okur."""
 
     veri = pd.read_csv(SEMBOL_DOSYASI)
 
@@ -60,7 +58,6 @@ def sembol_listesini_oku():
         .tolist()
     )
 
-    # SPY bir sirket degil, piyasa rejimini temsil eden ETF'dir.
     if "SPY" not in semboller:
         semboller.append("SPY")
 
@@ -68,7 +65,6 @@ def sembol_listesini_oku():
 
 
 def kayitlari_hazirla(semboller, alpaca_varliklari):
-    """Veritabani kayitlarini ve bulunamayan sembolleri hazirlar."""
 
     kayitlar = []
     bulunamayan_semboller = []
@@ -111,7 +107,7 @@ def kayitlari_hazirla(semboller, alpaca_varliklari):
 
 
 def menkul_kiymetleri_aktar():
-    """S&P 500 sembollerini PostgreSQL'e aktarir."""
+    # S&P 500 sembollerini PostgreSQL'e aktarir.
 
     baglanti = None
     imlec = None
