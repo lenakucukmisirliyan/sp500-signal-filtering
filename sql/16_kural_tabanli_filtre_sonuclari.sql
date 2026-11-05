@@ -4,14 +4,16 @@ SELECT
     COUNT(*) AS filtresiz_sinyal,
 
     COUNT(*) FILTER (
-        WHERE pk.spy_er12 >= 0.20
+        WHERE pk.spy_60dk_getiri IS NULL
+           OR pk.spy_60dk_getiri >= -0.001
     ) AS filtreli_sinyal,
 
     ROUND(
         100.0 * (
             COUNT(*)
             - COUNT(*) FILTER (
-                WHERE pk.spy_er12 >= 0.20
+                WHERE pk.spy_60dk_getiri IS NULL
+                   OR pk.spy_60dk_getiri >= -0.001
             )
         ) / COUNT(*),
         2
@@ -27,10 +29,14 @@ SELECT
     ROUND(
         100.0 * COUNT(*) FILTER (
             WHERE s.basarili_mi = TRUE
-              AND pk.spy_er12 >= 0.20
+              AND (
+                  pk.spy_60dk_getiri IS NULL
+                  OR pk.spy_60dk_getiri >= -0.001
+              )
         )
         / COUNT(*) FILTER (
-            WHERE pk.spy_er12 >= 0.20
+            WHERE pk.spy_60dk_getiri IS NULL
+               OR pk.spy_60dk_getiri >= -0.001
         ),
         2
     ) AS filtreli_basari,
@@ -42,7 +48,8 @@ SELECT
 
     ROUND(
         100.0 * AVG(s.net_getiri) FILTER (
-            WHERE pk.spy_er12 >= 0.20
+            WHERE pk.spy_60dk_getiri IS NULL
+               OR pk.spy_60dk_getiri >= -0.001
         ),
         4
     ) AS filtreli_ortalama_getiri

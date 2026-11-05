@@ -33,7 +33,7 @@ def spy_verisini_getir(imlec):
         imlec.fetchall(),
         columns=[
             "bar_zamani",
-            "spy_kapanis"
+            "spy_kapanis",
         ]
     )
 
@@ -45,7 +45,7 @@ def spy_verisini_getir(imlec):
 
 
 def piyasa_kosullarini_hesapla(veri):
-    """SPY ortalamalarini ve trend gucunu hesaplar."""
+    """SPY piyasa gostergelerini hesaplar."""
 
     veri["spy_kisa_ortalama"] = (
         veri["spy_kapanis"]
@@ -73,7 +73,7 @@ def piyasa_kosullarini_hesapla(veri):
         .abs()
     )
 
-    # Son 12 bardaki butun ara hareketlerin toplami.
+    # Son 12 bardaki ara hareketlerin toplami.
     toplam_hareket = (
         veri["bir_barlik_hareket"]
         .rolling(12)
@@ -87,17 +87,59 @@ def piyasa_kosullarini_hesapla(veri):
         )
     )
 
-    # SMA50 hesaplanamayan ilk satirlar kullanilmaz.
-    veri = veri.dropna().copy()
-
-    veri["olumlu_piyasa_mi"] = (
-        veri["spy_kisa_ortalama"]
-        > veri["spy_uzun_ortalama"]
+    # Bar zamanini New York islem tarihine cevirir.
+    veri["islem_tarihi"] = (
+        pd.to_datetime(
+            veri["bar_zamani"],
+            utc=True
+        )
+        .dt.tz_convert("America/New_York")
+        .dt.date
     )
 
-    # Yalnizca hesaplama sirasinda kullanilan sutunu siler.
+    # Ayni islem gunundeki 12 bar onceki kapanisi bulur.
+    onceki_kapanis = (
+        veri.groupby("islem_tarihi")[
+            "spy_kapanis"
+        ]
+        .shift(12)
+    )
+
+    # Son 12 bar, yaklasik 60 dakikalik getiri.
+    veri["spy_60dk_getiri"] = (
+        veri["spy_kapanis"]
+        / onceki_kapanis
+        - 1
+    )
+
+    # SMA50 ve ER12 hesaplanamayan ilk satirlar kullanilmaz.
+    veri = veri.dropna(
+        subset=[
+            "spy_kisa_ortalama",
+            "spy_uzun_ortalama",
+            "spy_er12",
+        ]
+    ).copy()
+
+    # SPY'nin SMA20'ye oransal uzakligi.
+    veri["spy_sma20_farki_orani"] = (
+        (
+            veri["spy_kapanis"]
+            - veri["spy_kisa_ortalama"]
+        )
+        / veri["spy_kisa_ortalama"]
+    )
+
+    veri["sma20_ustu_mu"] = (
+        veri["spy_sma20_farki_orani"] >= 0
+    )
+
+    # Yalnizca hesaplama sirasinda kullanilan sutunlar.
     veri = veri.drop(
-        columns=["bir_barlik_hareket"]
+        columns=[
+            "bir_barlik_hareket",
+            "islem_tarihi",
+        ]
     )
 
     return veri
@@ -122,7 +164,15 @@ def piyasa_kosullarini_kaydet(imlec, veri):
                 float(satir.spy_kisa_ortalama),
                 float(satir.spy_uzun_ortalama),
                 float(satir.spy_er12),
-                bool(satir.olumlu_piyasa_mi),
+                float(satir.spy_sma20_farki_orani),
+                (
+                    float(satir.spy_60dk_getiri)
+                    if not pd.isna(
+                        satir.spy_60dk_getiri
+                    )
+                    else None
+                ),
+                bool(satir.sma20_ustu_mu),
             )
         )
 
@@ -135,7 +185,9 @@ def piyasa_kosullarini_kaydet(imlec, veri):
             spy_kisa_ortalama,
             spy_uzun_ortalama,
             spy_er12,
-            olumlu_piyasa_mi
+            spy_sma20_farki_orani,
+            spy_60dk_getiri,
+            sma20_ustu_mu
         )
         VALUES %s;
         """,
@@ -169,10 +221,17 @@ def piyasa_kosullarini_hazirla():
 
         baglanti.commit()
 
-        olumlu_bar_sayisi = int(
+        sma20_ustu_bar_sayisi = int(
             piyasa_kosullari[
-                "olumlu_piyasa_mi"
+                "sma20_ustu_mu"
             ].sum()
+        )
+
+        getiri_hesaplanan_bar = int(
+            piyasa_kosullari[
+                "spy_60dk_getiri"
+            ].notna()
+            .sum()
         )
 
         print(
@@ -186,8 +245,13 @@ def piyasa_kosullarini_hazirla():
         )
 
         print(
-            f"Olumlu piyasa bari: "
-            f"{olumlu_bar_sayisi:,}"
+            f"SMA20 ustundeki bar: "
+            f"{sma20_ustu_bar_sayisi:,}"
+        )
+
+        print(
+            f"60 dakikalik getiri hesaplanan bar: "
+            f"{getiri_hesaplanan_bar:,}"
         )
 
     except Exception:

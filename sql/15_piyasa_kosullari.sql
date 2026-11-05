@@ -11,7 +11,11 @@ CREATE TABLE IF NOT EXISTS piyasa_kosullari (
 
     spy_er12 NUMERIC(10, 6),
 
-    olumlu_piyasa_mi BOOLEAN,
+    spy_sma20_farki_orani NUMERIC(12, 8),
+
+    spy_60dk_getiri NUMERIC(12, 8),
+
+    sma20_ustu_mu BOOLEAN,
 
     olusturulma_zamani TIMESTAMPTZ
         NOT NULL DEFAULT CURRENT_TIMESTAMP
