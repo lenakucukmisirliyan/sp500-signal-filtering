@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS piyasa_kosullari (
 
     spy_60dk_getiri NUMERIC(12, 8),
 
+    spy_60dk_volatilite NUMERIC(12, 8),
+
     sma20_ustu_mu BOOLEAN,
 
     olusturulma_zamani TIMESTAMPTZ

@@ -59,7 +59,7 @@ def piyasa_kosullarini_hesapla(veri):
         .mean()
     )
 
-    # Her bardaki fiyat hareketinin buyuklugu.
+    # Her bardaki mutlak fiyat hareketi.
     veri["bir_barlik_hareket"] = (
         veri["spy_kapanis"]
         .diff()
@@ -112,6 +112,25 @@ def piyasa_kosullarini_hesapla(veri):
         - 1
     )
 
+    # SPY'nin her 5 dakikalik getirisini hesaplar.
+    veri["spy_bir_barlik_getiri"] = (
+        veri.groupby("islem_tarihi")[
+            "spy_kapanis"
+        ]
+        .pct_change(fill_method=None)
+    )
+
+    # Son 12 bardaki 5 dakikalik getirilerin
+    # standart sapmasini hesaplar.
+    veri["spy_60dk_volatilite"] = (
+        veri.groupby("islem_tarihi")[
+            "spy_bir_barlik_getiri"
+        ]
+        .transform(
+            lambda seri: seri.rolling(12).std()
+        )
+    )
+
     # SMA50 ve ER12 hesaplanamayan ilk satirlar kullanilmaz.
     veri = veri.dropna(
         subset=[
@@ -138,6 +157,7 @@ def piyasa_kosullarini_hesapla(veri):
     veri = veri.drop(
         columns=[
             "bir_barlik_hareket",
+            "spy_bir_barlik_getiri",
             "islem_tarihi",
         ]
     )
@@ -165,6 +185,7 @@ def piyasa_kosullarini_kaydet(imlec, veri):
                 float(satir.spy_uzun_ortalama),
                 float(satir.spy_er12),
                 float(satir.spy_sma20_farki_orani),
+
                 (
                     float(satir.spy_60dk_getiri)
                     if not pd.isna(
@@ -172,6 +193,15 @@ def piyasa_kosullarini_kaydet(imlec, veri):
                     )
                     else None
                 ),
+
+                (
+                    float(satir.spy_60dk_volatilite)
+                    if not pd.isna(
+                        satir.spy_60dk_volatilite
+                    )
+                    else None
+                ),
+
                 bool(satir.sma20_ustu_mu),
             )
         )
@@ -187,6 +217,7 @@ def piyasa_kosullarini_kaydet(imlec, veri):
             spy_er12,
             spy_sma20_farki_orani,
             spy_60dk_getiri,
+            spy_60dk_volatilite,
             sma20_ustu_mu
         )
         VALUES %s;
@@ -206,7 +237,9 @@ def piyasa_kosullarini_hazirla():
         baglanti = veritabani_baglantisi_olustur()
         imlec = baglanti.cursor()
 
-        spy_verisi = spy_verisini_getir(imlec)
+        spy_verisi = spy_verisini_getir(
+            imlec
+        )
 
         piyasa_kosullari = (
             piyasa_kosullarini_hesapla(
@@ -234,6 +267,13 @@ def piyasa_kosullarini_hazirla():
             .sum()
         )
 
+        volatilite_hesaplanan_bar = int(
+            piyasa_kosullari[
+                "spy_60dk_volatilite"
+            ].notna()
+            .sum()
+        )
+
         print(
             f"SPY fiyat satiri: "
             f"{len(spy_verisi):,}"
@@ -252,6 +292,11 @@ def piyasa_kosullarini_hazirla():
         print(
             f"60 dakikalik getiri hesaplanan bar: "
             f"{getiri_hesaplanan_bar:,}"
+        )
+
+        print(
+            f"60 dakikalik volatilite hesaplanan bar: "
+            f"{volatilite_hesaplanan_bar:,}"
         )
 
     except Exception:
