@@ -1,13 +1,20 @@
 import numpy as np
 import pandas as pd
 
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
 
-from src.veritabani import veritabani_baglantisi_olustur
+from src.veritabani import (
+    veritabani_baglantisi_olustur
+)
 
 
 OZELLIKLER = [
@@ -41,11 +48,13 @@ def veriyi_getir():
                 sinyal_id,
                 sinyal_zamani,
                 veri_donemi,
+
                 spy_sma20_farki_orani,
                 spy_60dk_getiri,
                 spy_60dk_volatilite,
                 spy_er12,
                 spy_ortalama_farki_orani,
+
                 hisse_15dk_getiri,
                 hisse_60dk_getiri,
                 hisse_60dk_volatilite,
@@ -53,6 +62,7 @@ def veriyi_getir():
                 hisse_ortalama_farki_orani,
                 goreceli_60dk_getiri,
                 gunun_dakikasi,
+
                 basarili_mi,
                 net_getiri
 
@@ -66,11 +76,13 @@ def veriyi_getir():
             "sinyal_id",
             "sinyal_zamani",
             "veri_donemi",
+
             "spy_sma20_farki_orani",
             "spy_60dk_getiri",
             "spy_60dk_volatilite",
             "spy_er12",
             "spy_ortalama_farki_orani",
+
             "hisse_15dk_getiri",
             "hisse_60dk_getiri",
             "hisse_60dk_volatilite",
@@ -78,6 +90,7 @@ def veriyi_getir():
             "hisse_ortalama_farki_orani",
             "goreceli_60dk_getiri",
             "gunun_dakikasi",
+
             "basarili_mi",
             "net_getiri",
         ]
@@ -87,89 +100,129 @@ def veriyi_getir():
             columns=sutunlar
         )
 
-        veri["sinyal_zamani"] = pd.to_datetime(
-            veri["sinyal_zamani"],
-            utc=True
-        )
-
-        return veri
-
     finally:
         imlec.close()
         baglanti.close()
 
+    veri["sinyal_zamani"] = pd.to_datetime(
+        veri["sinyal_zamani"],
+        utc=True
+    )
+
+    for ozellik in OZELLIKLER:
+        veri[ozellik] = pd.to_numeric(
+            veri[ozellik],
+            errors="coerce"
+        )
+
+    veri["net_getiri"] = pd.to_numeric(
+        veri["net_getiri"],
+        errors="coerce"
+    )
+
+    veri["basarili_mi"] = (
+        veri["basarili_mi"].astype(bool)
+    )
+
+    return veri
+
 
 def deney_donemlerini_olustur(veri):
-    """Verileri dort kronolojik doneme ayirir."""
+    """Test verisini ikincil dogrulama ve nihai teste ayirir."""
 
     veri = veri.copy()
 
-    veri["deney_donemi"] = (
-        veri["veri_donemi"]
+    veri["deney_donemi"] = veri[
+        "veri_donemi"
+    ]
+
+    ikincil_dogrulama = (
+        (veri["veri_donemi"] == "TEST")
+        & (
+            veri["sinyal_zamani"]
+            < pd.Timestamp(
+                "2024-03-01",
+                tz="UTC"
+            )
+        )
     )
 
-    mart_baslangici = pd.Timestamp(
-        "2024-03-01",
-        tz="UTC"
-    )
-
-    test_satirlari = (
-        veri["veri_donemi"] == "TEST"
+    nihai_test = (
+        (veri["veri_donemi"] == "TEST")
+        & (
+            veri["sinyal_zamani"]
+            >= pd.Timestamp(
+                "2024-03-01",
+                tz="UTC"
+            )
+        )
     )
 
     veri.loc[
-        test_satirlari
-        & (
-            veri["sinyal_zamani"]
-            < mart_baslangici
-        ),
+        ikincil_dogrulama,
         "deney_donemi"
     ] = "IKINCIL_DOGRULAMA"
 
     veri.loc[
-        test_satirlari
-        & (
-            veri["sinyal_zamani"]
-            >= mart_baslangici
-        ),
+        nihai_test,
         "deney_donemi"
     ] = "NIHAI_TEST"
 
     return veri
 
 
-def donemleri_birlestir(
-    veri,
-    donemler
+def model_olustur(
+    model_adi="RANDOM_FOREST"
 ):
-    """Bir veya daha fazla donemin verilerini birlestirir."""
+    """Istenen makine ogrenmesi modelini olusturur."""
 
-    donem_verisi = veri[
-        veri["deney_donemi"].isin(
-            donemler
+    if model_adi == "LOGISTIC_REGRESSION":
+        siniflandirici = LogisticRegression(
+            max_iter=1000,
+            random_state=42
         )
-    ].copy()
 
-    ozellikler = (
-        donem_verisi[OZELLIKLER]
-        .astype(float)
-    )
+    elif model_adi == "DECISION_TREE":
+        siniflandirici = DecisionTreeClassifier(
+            max_depth=8,
+            min_samples_leaf=100,
+            random_state=42
+        )
 
-    hedef = (
-        donem_verisi["basarili_mi"]
-        .astype(int)
-    )
+    elif model_adi == "RANDOM_FOREST":
+        siniflandirici = RandomForestClassifier(
+            n_estimators=200,
+            max_depth=8,
+            min_samples_leaf=100,
+            random_state=42,
+            n_jobs=-1
+        )
 
-    getiriler = (
-        donem_verisi["net_getiri"]
-        .astype(float)
-    )
+    elif model_adi == "KNN":
+        siniflandirici = KNeighborsClassifier(
+            n_neighbors=25,
+            weights="uniform",
+            n_jobs=-1
+        )
 
-    return ozellikler, hedef, getiriler
+    elif model_adi == "NAIVE_BAYES":
+        siniflandirici = GaussianNB()
 
+    elif model_adi == "YAPAY_SINIR_AGI":
+        siniflandirici = MLPClassifier(
+            hidden_layer_sizes=(20,),
+            activation="relu",
+            solver="adam",
+            max_iter=300,
+            early_stopping=True,
+            validation_fraction=0.10,
+            random_state=42
+        )
 
-def model_olustur():
-    """Random Forest model ve veri hazirlama adimlarini olusturur."""
+    else:
+        raise ValueError(
+            f"Bilinmeyen model: {model_adi}"
+        )
 
     return Pipeline(
         steps=[
@@ -186,130 +239,66 @@ def model_olustur():
             ),
             (
                 "model",
-                RandomForestClassifier(
-                    n_estimators=200,
-                    max_depth=8,
-                    min_samples_leaf=100,
-                    random_state=42,
-                    n_jobs=-1
-                )
+                siniflandirici
             ),
         ]
     )
 
 
-def sonuclari_goster(
-    hedef,
-    getiriler,
-    olasiliklar,
-    esik
-):
-    """Filtresiz ve filtreli sonuclari gosterir."""
-
-    izin_verilenler = (
-        olasiliklar >= esik
-    )
-
-    engelleme_orani = (
-        (~izin_verilenler).mean()
-        * 100
-    )
-
-    filtresiz_basari = (
-        hedef.mean()
-        * 100
-    )
-
-    filtreli_basari = (
-        hedef[
-            izin_verilenler
-        ].mean()
-        * 100
-    )
-
-    filtresiz_getiri = (
-        getiriler.mean()
-        * 100
-    )
-
-    filtreli_getiri = (
-        getiriler[
-            izin_verilenler
-        ].mean()
-        * 100
-    )
-
-    print(
-        f"Gercek engelleme orani: "
-        f"%{engelleme_orani:.2f}"
-    )
-
-    print(
-        f"Filtresiz basari: "
-        f"%{filtresiz_basari:.2f}"
-    )
-
-    print(
-        f"Filtreli basari: "
-        f"%{filtreli_basari:.2f}"
-    )
-
-    print(
-        f"Basari degisimi: "
-        f"{filtreli_basari - filtresiz_basari:+.2f} puan"
-    )
-
-    print(
-        f"Filtresiz ortalama getiri: "
-        f"%{filtresiz_getiri:.4f}"
-    )
-
-    print(
-        f"Filtreli ortalama getiri: "
-        f"%{filtreli_getiri:.4f}"
-    )
-
-    print(
-        f"Getiri degisimi: "
-        f"{filtreli_getiri - filtresiz_getiri:+.4f} puan"
-    )
-
-
-def walk_forward_adimi(
+def donem_verisini_getir(
     veri,
-    egitim_donemleri,
-    degerlendirme_donemi,
-    adim_adi
+    donemler
 ):
-    """Modeli gecmis donemlerle egitir ve sonraki donemde degerlendirir."""
+    """Belirtilen donemlere ait verileri getirir."""
 
-    (
-        egitim_ozellikleri,
-        egitim_hedefi,
-        _
-    ) = donemleri_birlestir(
-        veri,
-        egitim_donemleri
+    return veri[
+        veri["deney_donemi"].isin(
+            donemler
+        )
+    ].copy()
+
+
+def model_sonucunu_hesapla(
+    model,
+    egitim_verisi,
+    degerlendirme_verisi
+):
+    """Modeli egitir ve degerlendirme sonuclarini hesaplar."""
+
+    egitim_ozellikleri = egitim_verisi[
+        OZELLIKLER
+    ]
+
+    egitim_hedefi = (
+        egitim_verisi["basarili_mi"]
+        .astype(int)
     )
 
-    (
-        degerlendirme_ozellikleri,
-        degerlendirme_hedefi,
-        degerlendirme_getirileri
-    ) = donemleri_birlestir(
-        veri,
-        [degerlendirme_donemi]
+    degerlendirme_ozellikleri = (
+        degerlendirme_verisi[
+            OZELLIKLER
+        ]
     )
 
-    model = model_olustur()
+    degerlendirme_hedefi = (
+        degerlendirme_verisi[
+            "basarili_mi"
+        ].astype(int)
+    )
+
+    degerlendirme_getirileri = (
+        degerlendirme_verisi[
+            "net_getiri"
+        ].astype(float)
+    )
 
     model.fit(
         egitim_ozellikleri,
         egitim_hedefi
     )
 
-    # Esik yalnizca gecmis egitim verisindeki
-    # tahmin olasiliklarindan belirlenir.
+    # Esik gelecekteki donemden degil,
+    # yalnizca egitim verisinden belirlenir.
     egitim_olasiliklari = (
         model.predict_proba(
             egitim_ozellikleri
@@ -327,55 +316,186 @@ def walk_forward_adimi(
         )[:, 1]
     )
 
+    izin_verilenler = (
+        degerlendirme_olasiliklari
+        >= olasilik_esigi
+    )
+
     auc = roc_auc_score(
         degerlendirme_hedefi,
         degerlendirme_olasiliklari
     )
 
-    print()
-    print("=" * 50)
-    print(adim_adi)
-
-    print(
-        "Egitim donemleri: "
-        + ", ".join(egitim_donemleri)
+    engelleme_orani = (
+        (~izin_verilenler).mean() * 100
     )
+
+    filtresiz_basari = (
+        degerlendirme_hedefi.mean() * 100
+    )
+
+    filtreli_basari = (
+        degerlendirme_hedefi[
+            izin_verilenler
+        ].mean() * 100
+    )
+
+    filtresiz_getiri = (
+        degerlendirme_getirileri.mean()
+        * 100
+    )
+
+    filtreli_getiri = (
+        degerlendirme_getirileri[
+            izin_verilenler
+        ].mean()
+        * 100
+    )
+
+    return {
+        "egitim_sinyali": len(
+            egitim_verisi
+        ),
+        "degerlendirme_sinyali": len(
+            degerlendirme_verisi
+        ),
+        "esik": olasilik_esigi,
+        "auc": auc,
+        "engelleme_orani": engelleme_orani,
+        "filtresiz_basari": filtresiz_basari,
+        "filtreli_basari": filtreli_basari,
+        "filtresiz_getiri": filtresiz_getiri,
+        "filtreli_getiri": filtreli_getiri,
+    }
+
+
+def sonucu_yazdir(
+    adim_adi,
+    sonuc
+):
+    """Bir degerlendirme sonucunu terminalde gosterir."""
+
+    basari_degisimi = (
+        sonuc["filtreli_basari"]
+        - sonuc["filtresiz_basari"]
+    )
+
+    getiri_degisimi = (
+        sonuc["filtreli_getiri"]
+        - sonuc["filtresiz_getiri"]
+    )
+
+    print(f"\n{adim_adi}")
 
     print(
         f"Egitim sinyali: "
-        f"{len(egitim_ozellikleri):,}"
+        f"{sonuc['egitim_sinyali']:,}"
     )
 
     print(
         f"Degerlendirme sinyali: "
-        f"{len(degerlendirme_ozellikleri):,}"
+        f"{sonuc['degerlendirme_sinyali']:,}"
     )
 
     print(
-        f"Gecmis veriden belirlenen esik: "
-        f"{olasilik_esigi:.4f}"
+        f"Tahmin esigi: "
+        f"{sonuc['esik']:.4f}"
     )
 
     print(
         f"ROC-AUC: "
-        f"{auc:.4f}"
+        f"{sonuc['auc']:.4f}"
     )
 
-    sonuclari_goster(
-        hedef=degerlendirme_hedefi,
-        getiriler=degerlendirme_getirileri,
-        olasiliklar=degerlendirme_olasiliklari,
-        esik=olasilik_esigi
+    print(
+        f"Engelleme orani: "
+        f"%{sonuc['engelleme_orani']:.2f}"
+    )
+
+    print(
+        f"Filtresiz basari: "
+        f"%{sonuc['filtresiz_basari']:.2f}"
+    )
+
+    print(
+        f"Filtreli basari: "
+        f"%{sonuc['filtreli_basari']:.2f}"
+    )
+
+    print(
+        f"Basari degisimi: "
+        f"{basari_degisimi:+.2f} puan"
+    )
+
+    print(
+        f"Filtresiz ortalama getiri: "
+        f"%{sonuc['filtresiz_getiri']:.4f}"
+    )
+
+    print(
+        f"Filtreli ortalama getiri: "
+        f"%{sonuc['filtreli_getiri']:.4f}"
+    )
+
+    print(
+        f"Getiri degisimi: "
+        f"{getiri_degisimi:+.4f} puan"
     )
 
 
-def modeli_calistir():
-    """Uc adimli walk-forward degerlendirmesini calistirir."""
+def modelleri_karsilastir():
+    """Alti modeli iki dogrulama doneminde karsilastirir."""
 
     veri = veriyi_getir()
-
     veri = deney_donemlerini_olustur(
         veri
+    )
+
+    model_adlari = {
+        "LOGISTIC_REGRESSION":
+            "Logistic Regression",
+
+        "DECISION_TREE":
+            "Decision Tree",
+
+        "RANDOM_FOREST":
+            "Random Forest",
+
+        "KNN":
+            "K-Nearest Neighbors",
+
+        "NAIVE_BAYES":
+            "Gaussian Naive Bayes",
+
+        "YAPAY_SINIR_AGI":
+            "Yapay Sinir Agi",
+    }
+
+    birinci_egitim = donem_verisini_getir(
+        veri,
+        ["EGITIM"]
+    )
+
+    birinci_dogrulama = (
+        donem_verisini_getir(
+            veri,
+            ["DOGRULAMA"]
+        )
+    )
+
+    ikinci_egitim = donem_verisini_getir(
+        veri,
+        [
+            "EGITIM",
+            "DOGRULAMA",
+        ]
+    )
+
+    ikinci_dogrulama = (
+        donem_verisini_getir(
+            veri,
+            ["IKINCIL_DOGRULAMA"]
+        )
     )
 
     print(
@@ -383,36 +503,55 @@ def modeli_calistir():
         f"{len(veri):,}"
     )
 
-    walk_forward_adimi(
-        veri=veri,
-        egitim_donemleri=[
-            "EGITIM",
-        ],
-        degerlendirme_donemi="DOGRULAMA",
-        adim_adi="1. ADIM - Birinci dogrulama"
+    print(
+        "\nNihai test model karsilastirmasinda "
+        "kullanilmayacaktir."
     )
 
-    walk_forward_adimi(
-        veri=veri,
-        egitim_donemleri=[
-            "EGITIM",
-            "DOGRULAMA",
-        ],
-        degerlendirme_donemi="IKINCIL_DOGRULAMA",
-        adim_adi="2. ADIM - Ikinci dogrulama"
-    )
+    for model_kodu, model_adi in (
+        model_adlari.items()
+    ):
+        print("\n" + "=" * 55)
+        print(f"Model: {model_adi}")
 
-    walk_forward_adimi(
-        veri=veri,
-        egitim_donemleri=[
-            "EGITIM",
-            "DOGRULAMA",
-            "IKINCIL_DOGRULAMA",
-        ],
-        degerlendirme_donemi="NIHAI_TEST",
-        adim_adi="3. ADIM - Mart 2024 nihai test"
-    )
+        birinci_model = model_olustur(
+            model_kodu
+        )
+
+        birinci_sonuc = (
+            model_sonucunu_hesapla(
+                model=birinci_model,
+                egitim_verisi=birinci_egitim,
+                degerlendirme_verisi=(
+                    birinci_dogrulama
+                )
+            )
+        )
+
+        sonucu_yazdir(
+            "1. ADIM - Birinci dogrulama",
+            birinci_sonuc
+        )
+
+        ikinci_model = model_olustur(
+            model_kodu
+        )
+
+        ikinci_sonuc = (
+            model_sonucunu_hesapla(
+                model=ikinci_model,
+                egitim_verisi=ikinci_egitim,
+                degerlendirme_verisi=(
+                    ikinci_dogrulama
+                )
+            )
+        )
+
+        sonucu_yazdir(
+            "2. ADIM - Ikinci dogrulama",
+            ikinci_sonuc
+        )
 
 
 if __name__ == "__main__":
-    modeli_calistir()
+    modelleri_karsilastir()
