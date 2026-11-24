@@ -32,7 +32,7 @@ OZELLIKLER = [
     "gunun_dakikasi",
 ]
 
-HEDEF_ENGELLEME_ORANI = 0.10
+HEDEF_ENGELLEME_ORANI = 0.20
 
 
 def veriyi_getir():
