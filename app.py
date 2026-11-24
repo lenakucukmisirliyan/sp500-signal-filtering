@@ -3,6 +3,7 @@ import streamlit as st
 
 from sklearn.metrics import (
     accuracy_score,
+    confusion_matrix,
     f1_score,
     precision_score,
     recall_score,
@@ -34,16 +35,23 @@ DONEM_ADLARI = {
     "NIHAI_TEST": "Nihai Test",
 }
 
-KARAR_ACIKLAMALARI = {
-    "AL": "Görece güçlü sinyal",
-    "NOTR": "Belirsiz sinyal",
-    "ALMA": "Görece zayıf sinyal",
+YONTEM_ADLARI = {
+    "FILTRESIZ": "Filtresiz",
+    "KURAL_TABANLI": "Kural Tabanlı",
+    "RANDOM_FOREST": "Random Forest",
+    "AGIRLIKLI_ENSEMBLE": "Ağırlıklı Ensemble",
+}
+
+KARAR_ADLARI = {
+    "AL": "AL – Görece Güçlü",
+    "NOTR": "NÖTR – Belirsiz",
+    "ALMA": "ALMA – Görece Zayıf",
 }
 
 
 @st.cache_data(ttl=300)
 def sorgu_dataframe(sorgu, parametreler=None):
-    """SQL sorgusunu çalıştırarak DataFrame döndürür."""
+    """SQL sorgusunu çalıştırıp DataFrame döndürür."""
 
     baglanti = veritabani_baglantisi_olustur()
     imlec = baglanti.cursor()
@@ -111,8 +119,24 @@ def genel_sayilari_getir():
 
 
 @st.cache_data(ttl=300)
+def yontem_sonuclarini_getir(donem):
+    """Dört yöntemin performans sonuçlarını getirir."""
+
+    sorgu = """
+        SELECT *
+        FROM genisletilmis_performans_sonuclari
+        WHERE deney_donemi = %s;
+    """
+
+    return sorgu_dataframe(
+        sorgu,
+        (donem,),
+    )
+
+
+@st.cache_data(ttl=300)
 def model_verisini_getir(donem):
-    """Seçilen dönemin model kararlarını ve sonuçlarını getirir."""
+    """Model tahminlerini ve gerçekleşen sonuçları getirir."""
 
     sorgu = """
         SELECT
@@ -137,7 +161,7 @@ def model_verisini_getir(donem):
 
 
 def model_performanslarini_hesapla(veri):
-    """Model kararlarından sınıflandırma ölçülerini hesaplar."""
+    """Her modelin ikili filtreleme performansını hesaplar."""
 
     sonuclar = []
 
@@ -150,9 +174,10 @@ def model_performanslarini_hesapla(veri):
             .astype(int)
         )
 
-        # ALMA dışındaki sinyallere izin verildiği kabul edilir.
+        # AL ve NÖTR kullanılır, ALMA engellenir.
         tahmin = (
-            model_verisi["model_karari"] != "ALMA"
+            model_verisi["model_karari"]
+            != "ALMA"
         ).astype(int)
 
         olasilik = (
@@ -160,25 +185,20 @@ def model_performanslarini_hesapla(veri):
             .astype(float)
         )
 
-        if gercek.nunique() > 1:
-            roc_auc = roc_auc_score(
-                gercek,
-                olasilik,
-            )
-        else:
-            roc_auc = 0.0
+        roc_auc = roc_auc_score(
+            gercek,
+            olasilik,
+        )
 
         izin_verilen = model_verisi[
-            model_verisi["model_karari"] != "ALMA"
-        ]
-
-        engellenen = model_verisi[
-            model_verisi["model_karari"] == "ALMA"
+            model_verisi["model_karari"]
+            != "ALMA"
         ]
 
         sonuclar.append(
             {
                 "Model": MODEL_ADLARI[model_kodu],
+                "Model Kodu": model_kodu,
                 "Accuracy (%)": (
                     accuracy_score(
                         gercek,
@@ -221,12 +241,18 @@ def model_performanslarini_hesapla(veri):
                 ),
                 "ROC-AUC (%)": roc_auc * 100,
                 "Engelleme (%)": (
-                    len(engellenen)
-                    / len(model_verisi)
+                    (
+                        model_verisi[
+                            "model_karari"
+                        ]
+                        == "ALMA"
+                    ).mean()
                     * 100
                 ),
                 "İzin Verilen Başarı (%)": (
-                    izin_verilen["basarili_mi"]
+                    izin_verilen[
+                        "basarili_mi"
+                    ]
                     .astype(float)
                     .mean()
                     * 100
@@ -241,7 +267,8 @@ def model_performanslarini_hesapla(veri):
     ).columns
 
     sonuc[sayisal_sutunlar] = (
-        sonuc[sayisal_sutunlar].round(2)
+        sonuc[sayisal_sutunlar]
+        .round(2)
     )
 
     return sonuc.sort_values(
@@ -251,8 +278,58 @@ def model_performanslarini_hesapla(veri):
 
 
 @st.cache_data(ttl=300)
+def model_karar_ozetini_getir(donem):
+    """Model bazında AL, NÖTR ve ALMA sonuçlarını getirir."""
+
+    sorgu = """
+        SELECT
+            msk.model_kodu,
+            msk.model_karari,
+            COUNT(*) AS sinyal_sayisi,
+
+            ROUND(
+                AVG(
+                    iss.basarili_mi::INTEGER
+                ) * 100,
+                2
+            ) AS basari_orani_yuzde,
+
+            ROUND(
+                AVG(iss.net_getiri) * 100,
+                4
+            ) AS ortalama_net_getiri_yuzde
+
+        FROM model_sinyal_kararlari msk
+
+        INNER JOIN islem_sinyalleri iss
+            ON iss.sinyal_id =
+               msk.sinyal_id
+
+        WHERE msk.deney_donemi = %s
+
+        GROUP BY
+            msk.model_kodu,
+            msk.model_karari
+
+        ORDER BY
+            msk.model_kodu,
+
+            CASE msk.model_karari
+                WHEN 'AL' THEN 1
+                WHEN 'NOTR' THEN 2
+                WHEN 'ALMA' THEN 3
+            END;
+    """
+
+    return sorgu_dataframe(
+        sorgu,
+        (donem,),
+    )
+
+
+@st.cache_data(ttl=300)
 def ensemble_ozetini_getir():
-    """Ensemble kararlarının dönemsel sonuçlarını getirir."""
+    """Ensemble kararlarının gerçekleşen sonuçlarını getirir."""
 
     sorgu = """
         SELECT
@@ -265,7 +342,7 @@ def ensemble_ozetini_getir():
                     iss.basarili_mi::INTEGER
                 ) * 100,
                 2
-            ) AS basari_orani,
+            ) AS basari_orani_yuzde,
 
             ROUND(
                 AVG(iss.net_getiri) * 100,
@@ -275,28 +352,45 @@ def ensemble_ozetini_getir():
         FROM ensemble_kararlari ek
 
         INNER JOIN islem_sinyalleri iss
-            ON iss.sinyal_id = ek.sinyal_id
+            ON iss.sinyal_id =
+               ek.sinyal_id
 
         GROUP BY
             ek.deney_donemi,
-            ek.ensemble_karari
-
-        ORDER BY
-            ek.deney_donemi,
-
-            CASE ek.ensemble_karari
-                WHEN 'AL' THEN 1
-                WHEN 'NOTR' THEN 2
-                WHEN 'ALMA' THEN 3
-            END;
+            ek.ensemble_karari;
     """
 
     return sorgu_dataframe(sorgu)
 
 
 @st.cache_data(ttl=300)
+def model_agirliklarini_getir(donem):
+    """Seçilen dönemde kullanılan model ağırlıklarını getirir."""
+
+    sorgu = """
+        SELECT
+            model_kodu,
+            roc_auc,
+            rastgele_ustu_puan,
+            model_agirligi,
+            agirlik_kaynagi
+
+        FROM model_agirliklari
+
+        WHERE uygulama_donemi = %s
+
+        ORDER BY model_agirligi DESC;
+    """
+
+    return sorgu_dataframe(
+        sorgu,
+        (donem,),
+    )
+
+
+@st.cache_data(ttl=300)
 def sembolleri_getir():
-    """Geçmiş karar görünümündeki sembolleri getirir."""
+    """Geçmiş karar kayıtlarındaki sembolleri getirir."""
 
     sorgu = """
         SELECT DISTINCT sembol
@@ -304,16 +398,19 @@ def sembolleri_getir():
         ORDER BY sembol;
     """
 
-    return sorgu_dataframe(sorgu)["sembol"].tolist()
+    return sorgu_dataframe(
+        sorgu
+    )["sembol"].tolist()
 
 
 @st.cache_data(ttl=300)
 def tarihleri_getir(sembol):
-    """Seçilen sembol için sinyal bulunan tarihleri getirir."""
+    """Seçilen sembolün sinyal tarihlerini getirir."""
 
     sorgu = """
         SELECT DISTINCT
-            sinyal_zamani_new_york::DATE AS tarih
+            sinyal_zamani_new_york::DATE
+                AS tarih
 
         FROM gecmis_sinyal_incelemesi
 
@@ -330,7 +427,7 @@ def tarihleri_getir(sembol):
 
 @st.cache_data(ttl=300)
 def gunun_sinyallerini_getir(sembol, tarih):
-    """Seçilen sembol ve tarihteki sinyalleri getirir."""
+    """Seçilen gündeki sinyalleri getirir."""
 
     sorgu = """
         SELECT
@@ -356,12 +453,20 @@ def gunun_sinyallerini_getir(sembol, tarih):
 
 @st.cache_data(ttl=300)
 def tek_sinyali_getir(sinyal_id):
-    """Seçilen sinyalin bütün karar bilgilerini getirir."""
+    """Bir sinyalin bütün karar ve sonuçlarını getirir."""
 
     sorgu = """
-        SELECT *
-        FROM gecmis_sinyal_incelemesi
-        WHERE sinyal_id = %s;
+        SELECT
+            gsi.*,
+            fs.kural_izin_verdi_mi
+
+        FROM gecmis_sinyal_incelemesi gsi
+
+        LEFT JOIN filtre_sonuclari fs
+            ON fs.sinyal_id =
+               gsi.sinyal_id
+
+        WHERE gsi.sinyal_id = %s;
     """
 
     return sorgu_dataframe(
@@ -371,7 +476,7 @@ def tek_sinyali_getir(sinyal_id):
 
 
 def genel_bakis_sayfasi():
-    """Projenin genel veri özetini gösterir."""
+    """Genel proje özetini gösterir."""
 
     st.header("Proje Genel Bakışı")
 
@@ -385,6 +490,7 @@ def genel_bakis_sayfasi():
     sayilar = genel_sayilari_getir()
 
     birinci_satir = st.columns(3)
+    ikinci_satir = st.columns(3)
 
     birinci_satir[0].metric(
         "Menkul Kıymet",
@@ -400,8 +506,6 @@ def genel_bakis_sayfasi():
         "Temiz Analiz Kaydı",
         f"{int(sayilar['analiz_verisi_sayisi']):,}",
     )
-
-    ikinci_satir = st.columns(3)
 
     ikinci_satir[0].metric(
         "Üretilen Sinyal",
@@ -420,109 +524,153 @@ def genel_bakis_sayfasi():
 
     st.subheader("Kararların anlamı")
 
-    karar_tablosu = pd.DataFrame(
-        [
-            {
-                "Karar": "AL",
-                "Açıklama": "Modellerin görece güçlü bulduğu sinyal",
-            },
-            {
-                "Karar": "NÖTR",
-                "Açıklama": "Modellerin yeterince ayrıştıramadığı sinyal",
-            },
-            {
-                "Karar": "ALMA",
-                "Açıklama": "Modellerin görece zayıf bulduğu sinyal",
-            },
-        ]
-    )
-
     st.dataframe(
-        karar_tablosu,
+        pd.DataFrame(
+            [
+                {
+                    "Karar": "AL",
+                    "Anlamı": (
+                        "Modellerin görece güçlü "
+                        "bulduğu sinyal"
+                    ),
+                },
+                {
+                    "Karar": "NÖTR",
+                    "Anlamı": (
+                        "Modellerin yeterince "
+                        "ayrıştıramadığı sinyal"
+                    ),
+                },
+                {
+                    "Karar": "ALMA",
+                    "Anlamı": (
+                        "Modellerin görece zayıf "
+                        "bulduğu sinyal"
+                    ),
+                },
+            ]
+        ),
         hide_index=True,
         use_container_width=True,
     )
 
     st.warning(
-        "Model kararları kesin getiri tahmini veya yatırım "
-        "tavsiyesi değildir. Kararlar sinyallerin geçmiş "
-        "verilere göre göreli kalite sınıflandırmasını gösterir."
+        "Kararlar kesin getiri tahmini veya yatırım tavsiyesi "
+        "değildir. Geçmiş verilere dayalı göreli sinyal "
+        "kalitesini gösterir."
     )
 
 
-def model_karsilastirma_sayfasi():
-    """Altı modelin performans ölçülerini gösterir."""
+def yontem_karsilastirma_sayfasi():
+    """Dört temel yöntemi karşılaştırır."""
 
-    st.header("Makine Öğrenmesi Model Karşılaştırması")
+    st.header("Yöntem Karşılaştırması")
 
     donem = st.selectbox(
         "Değerlendirme dönemi",
-        options=list(DONEM_ADLARI.keys()),
+        options=list(DONEM_ADLARI),
         format_func=lambda kod: DONEM_ADLARI[kod],
+        key="yontem_donem",
     )
 
-    veri = model_verisini_getir(donem)
-    performans = model_performanslarini_hesapla(veri)
+    veri = yontem_sonuclarini_getir(
+        donem
+    ).copy()
+
+    veri["Yöntem"] = veri[
+        "yontem"
+    ].map(YONTEM_ADLARI)
+
+    tablo = veri[
+        [
+            "Yöntem",
+            "toplam_sinyal_sayisi",
+            "kullanilan_sinyal_sayisi",
+            "engelleme_orani_yuzde",
+            "basari_orani_yuzde",
+            "ortalama_net_getiri_yuzde",
+            "medyan_net_getiri_yuzde",
+            "getiri_standart_sapmasi_yuzde",
+            "en_kotu_yuzde_5_ortalama_getiri",
+        ]
+    ].rename(
+        columns={
+            "toplam_sinyal_sayisi": "Toplam Sinyal",
+            "kullanilan_sinyal_sayisi": "Kullanılan Sinyal",
+            "engelleme_orani_yuzde": "Engelleme (%)",
+            "basari_orani_yuzde": "Başarı (%)",
+            "ortalama_net_getiri_yuzde": (
+                "Ortalama Net Getiri (%)"
+            ),
+            "medyan_net_getiri_yuzde": (
+                "Medyan Net Getiri (%)"
+            ),
+            "getiri_standart_sapmasi_yuzde": (
+                "Standart Sapma (%)"
+            ),
+            "en_kotu_yuzde_5_ortalama_getiri": (
+                "En Kötü %5 Ortalaması (%)"
+            ),
+        }
+    )
 
     st.dataframe(
-        performans,
+        tablo,
         hide_index=True,
         use_container_width=True,
     )
 
-    st.caption(
-        "Accuracy genel doğru karar oranını, precision izin "
-        "verilen sinyallerin başarı oranını, recall başarılı "
-        "sinyallerin ne kadarının korunduğunu, F1 precision ile "
-        "recall dengesini ve ROC-AUC modelin sıralama gücünü "
-        "gösterir."
-    )
+    sol, sag = st.columns(2)
 
-    grafik_verisi = (
-        performans[
-            [
-                "Model",
-                "F1 Macro (%)",
-                "ROC-AUC (%)",
-            ]
-        ]
-        .set_index("Model")
-    )
-
-    st.bar_chart(grafik_verisi)
-
-
-def ensemble_sayfasi():
-    """Ensemble kararlarının sonuçlarını gösterir."""
-
-    st.header("Ağırlıklı Ensemble Sonuçları")
-
-    veri = ensemble_ozetini_getir().copy()
-
-    veri["Dönem"] = veri[
-        "deney_donemi"
-    ].map(DONEM_ADLARI)
-
-    veri["Karar"] = veri[
-        "ensemble_karari"
-    ].map(KARAR_ACIKLAMALARI)
-
-    gosterilecek = veri[
+    basari_grafigi = tablo[
         [
-            "Dönem",
-            "Karar",
-            "sinyal_sayisi",
-            "basari_orani",
-            "ortalama_net_getiri_yuzde",
+            "Yöntem",
+            "Başarı (%)",
+            "Engelleme (%)",
         ]
-    ].rename(
-        columns={
-            "sinyal_sayisi": "Sinyal Sayısı",
-            "basari_orani": "Başarı Oranı (%)",
-            "ortalama_net_getiri_yuzde": (
-                "Ortalama Net Getiri (%)"
-            ),
-        }
+    ].set_index("Yöntem")
+
+    sol.subheader("Başarı ve engelleme")
+    sol.bar_chart(basari_grafigi)
+
+    getiri_grafigi = tablo[
+        [
+            "Yöntem",
+            "Ortalama Net Getiri (%)",
+        ]
+    ].set_index("Yöntem")
+
+    sag.subheader("Ortalama net getiri")
+    sag.bar_chart(getiri_grafigi)
+
+    if donem == "NIHAI_TEST":
+        st.info(
+            "Nihai testte ağırlıklı ensemble en yüksek başarı "
+            "oranına ulaşmıştır. Ancak ortalama net getiri "
+            "pozitif değildir ve filtresiz sonuca göre çok az "
+            "daha kötüdür."
+        )
+
+
+def model_karsilastirma_sayfasi():
+    """Altı modelin ayrıntılı performansını gösterir."""
+
+    st.header("Model Performansları")
+
+    donem = st.selectbox(
+        "Değerlendirme dönemi",
+        options=list(DONEM_ADLARI),
+        format_func=lambda kod: DONEM_ADLARI[kod],
+        key="model_donem",
+    )
+
+    veri = model_verisini_getir(donem)
+    performans = model_performanslarini_hesapla(
+        veri
+    )
+
+    gosterilecek = performans.drop(
+        columns=["Model Kodu"]
     )
 
     st.dataframe(
@@ -531,57 +679,242 @@ def ensemble_sayfasi():
         use_container_width=True,
     )
 
+    st.caption(
+        "Precision izin verilen sinyallerin başarı oranını, "
+        "recall başarılı sinyallerin ne kadarının korunduğunu, "
+        "F1 bu iki ölçünün dengesini ve ROC-AUC modelin başarılı "
+        "sinyalleri sıralama gücünü gösterir."
+    )
+
+    grafik = performans[
+        [
+            "Model",
+            "F1 Macro (%)",
+            "ROC-AUC (%)",
+        ]
+    ].set_index("Model")
+
+    st.bar_chart(grafik)
+
+    st.subheader("Confusion matrix")
+
+    secilen_model = st.selectbox(
+        "Model",
+        options=list(MODEL_ADLARI),
+        format_func=lambda kod: MODEL_ADLARI[kod],
+    )
+
+    model_verisi = veri[
+        veri["model_kodu"] == secilen_model
+    ]
+
+    gercek = (
+        model_verisi["basarili_mi"]
+        .astype(bool)
+        .astype(int)
+    )
+
+    tahmin = (
+        model_verisi["model_karari"]
+        != "ALMA"
+    ).astype(int)
+
+    matris = confusion_matrix(
+        gercek,
+        tahmin,
+        labels=[0, 1],
+    )
+
+    matris_tablosu = pd.DataFrame(
+        matris,
+        index=[
+            "Gerçek Başarısız",
+            "Gerçek Başarılı",
+        ],
+        columns=[
+            "Tahmin ALMA",
+            "Tahmin İzin Ver",
+        ],
+    )
+
+    st.dataframe(
+        matris_tablosu,
+        use_container_width=True,
+    )
+
+    st.subheader("Üçlü karar performansı")
+
+    karar_ozeti = model_karar_ozetini_getir(
+        donem
+    )
+
+    karar_ozeti["Model"] = karar_ozeti[
+        "model_kodu"
+    ].map(MODEL_ADLARI)
+
+    karar_ozeti["Karar"] = karar_ozeti[
+        "model_karari"
+    ].map(KARAR_ADLARI)
+
+    karar_tablosu = karar_ozeti[
+        [
+            "Model",
+            "Karar",
+            "sinyal_sayisi",
+            "basari_orani_yuzde",
+            "ortalama_net_getiri_yuzde",
+        ]
+    ].rename(
+        columns={
+            "sinyal_sayisi": "Sinyal Sayısı",
+            "basari_orani_yuzde": "Başarı (%)",
+            "ortalama_net_getiri_yuzde": (
+                "Ortalama Net Getiri (%)"
+            ),
+        }
+    )
+
+    st.dataframe(
+        karar_tablosu,
+        hide_index=True,
+        use_container_width=True,
+    )
+
+
+def ensemble_sayfasi():
+    """Ağırlıklı ensemble yapısını gösterir."""
+
+    st.header("Ağırlıklı Ensemble Analizi")
+
     donem = st.selectbox(
-        "Grafikte gösterilecek dönem",
-        options=list(DONEM_ADLARI.keys()),
+        "Değerlendirme dönemi",
+        options=list(DONEM_ADLARI),
         format_func=lambda kod: DONEM_ADLARI[kod],
         key="ensemble_donem",
     )
 
-    grafik = veri[
-        veri["deney_donemi"] == donem
-    ][
+    st.subheader("Model ağırlıkları")
+
+    agirliklar = model_agirliklarini_getir(
+        donem
+    ).copy()
+
+    agirliklar["Model"] = agirliklar[
+        "model_kodu"
+    ].map(MODEL_ADLARI)
+
+    agirliklar["ROC-AUC (%)"] = (
+        agirliklar["roc_auc"]
+        .astype(float)
+        * 100
+    ).round(2)
+
+    agirliklar["Ağırlık (%)"] = (
+        agirliklar["model_agirligi"]
+        .astype(float)
+        * 100
+    ).round(2)
+
+    agirlik_tablosu = agirliklar[
+        [
+            "Model",
+            "ROC-AUC (%)",
+            "Ağırlık (%)",
+            "agirlik_kaynagi",
+        ]
+    ].rename(
+        columns={
+            "agirlik_kaynagi": "Ağırlık Kaynağı",
+        }
+    )
+
+    st.dataframe(
+        agirlik_tablosu,
+        hide_index=True,
+        use_container_width=True,
+    )
+
+    st.bar_chart(
+        agirlik_tablosu[
+            [
+                "Model",
+                "Ağırlık (%)",
+            ]
+        ].set_index("Model")
+    )
+
+    st.subheader("Ensemble karar sonuçları")
+
+    ensemble = ensemble_ozetini_getir()
+    ensemble = ensemble[
+        ensemble["deney_donemi"] == donem
+    ].copy()
+
+    ensemble["Karar"] = ensemble[
+        "ensemble_karari"
+    ].map(KARAR_ADLARI)
+
+    ensemble_tablosu = ensemble[
         [
             "Karar",
-            "basari_orani",
+            "sinyal_sayisi",
+            "basari_orani_yuzde",
+            "ortalama_net_getiri_yuzde",
         ]
-    ].set_index("Karar")
+    ].rename(
+        columns={
+            "sinyal_sayisi": "Sinyal Sayısı",
+            "basari_orani_yuzde": "Başarı (%)",
+            "ortalama_net_getiri_yuzde": (
+                "Ortalama Net Getiri (%)"
+            ),
+        }
+    )
 
-    st.bar_chart(grafik)
+    st.dataframe(
+        ensemble_tablosu,
+        hide_index=True,
+        use_container_width=True,
+    )
+
+    st.bar_chart(
+        ensemble_tablosu[
+            [
+                "Karar",
+                "Başarı (%)",
+            ]
+        ].set_index("Karar")
+    )
 
     st.info(
-        "Başarı oranlarının AL > NÖTR > ALMA şeklinde "
-        "sıralanması, ensemble yönteminin sinyal kalitesini "
-        "ayırt edebildiğini gösterir. Ortalama getiri aynı "
-        "sıralamayı izlemeyebilir."
+        "Ağırlıklar yalnızca ilgili değerlendirme döneminden "
+        "önce elde edilen doğrulama performanslarından "
+        "hesaplanmıştır. Nihai test sonuçları ağırlık "
+        "belirlemek için kullanılmamıştır."
     )
 
 
 def gecmis_sinyal_sayfasi():
-    """Seçilen geçmiş sinyalin kararlarını gösterir."""
+    """Geçmiş bir sinyalin karar ve sonucunu gösterir."""
 
     st.header("Geçmiş Sinyal İncelemesi")
 
     st.write(
-        "Bir sembol ve sinyal tarihi seçerek modellerin o anda "
-        "verdiği kararları ve 60 dakika sonra gerçekleşen sonucu "
+        "Bir sembol ve tarih seçerek modellerin sinyal anındaki "
+        "kararlarını ve daha sonra gerçekleşen sonucu "
         "inceleyebilirsiniz."
     )
 
-    semboller = sembolleri_getir()
-
     sembol = st.selectbox(
         "Sembol",
-        options=semboller,
+        options=sembolleri_getir(),
     )
 
-    tarihler = tarihleri_getir(sembol)
-
     tarih = st.selectbox(
-        "Sinyal tarihi (New York)",
-        options=tarihler,
-        format_func=lambda deger: deger.strftime(
-            "%d.%m.%Y"
+        "Sinyal tarihi – New York",
+        options=tarihleri_getir(sembol),
+        format_func=lambda deger: (
+            deger.strftime("%d.%m.%Y")
         ),
     )
 
@@ -590,7 +923,7 @@ def gecmis_sinyal_sayfasi():
         tarih,
     )
 
-    sinyal_secimleri = {
+    secenekler = {
         (
             f"{satir.sinyal_zamani_new_york:%H:%M}"
             f" | Sinyal No: {satir.sinyal_id}"
@@ -598,117 +931,111 @@ def gecmis_sinyal_sayfasi():
         for satir in sinyaller.itertuples()
     }
 
-    secilen_etiket = st.selectbox(
+    secilen = st.selectbox(
         "Sinyal saati",
-        options=list(sinyal_secimleri.keys()),
+        options=list(secenekler),
     )
 
-    sinyal_id = sinyal_secimleri[
-        secilen_etiket
-    ]
-
-    sinyal = tek_sinyali_getir(sinyal_id)
-
-    st.subheader("Ensemble kararı")
-
-    karar_sutunu, al_sutunu, notr_sutunu, alma_sutunu = (
-        st.columns(4)
+    sinyal = tek_sinyali_getir(
+        secenekler[secilen]
     )
 
-    karar_sutunu.metric(
-        "Nihai Karar",
+    kural_karari = (
+        "İZİN VER"
+        if sinyal["kural_izin_verdi_mi"]
+        else "ENGELLE"
+    )
+
+    ust_satir = st.columns(3)
+
+    ust_satir[0].metric(
+        "Kural Tabanlı Karar",
+        kural_karari,
+    )
+
+    ust_satir[1].metric(
+        "Ensemble Kararı",
         sinyal["ensemble_karari"],
     )
 
-    al_sutunu.metric(
+    ust_satir[2].metric(
+        "Gerçekleşen Sonuç",
+        (
+            "Başarılı"
+            if sinyal["basarili_mi"]
+            else "Başarısız"
+        ),
+    )
+
+    oylar = st.columns(3)
+
+    oylar[0].metric(
         "AL Ağırlığı",
         f"%{float(sinyal['al_oy_agirligi']) * 100:.2f}",
     )
 
-    notr_sutunu.metric(
+    oylar[1].metric(
         "NÖTR Ağırlığı",
         f"%{float(sinyal['notr_oy_agirligi']) * 100:.2f}",
     )
 
-    alma_sutunu.metric(
+    oylar[2].metric(
         "ALMA Ağırlığı",
         f"%{float(sinyal['alma_oy_agirligi']) * 100:.2f}",
     )
 
     model_satirlari = [
-        {
-            "Model": "Logistic Regression",
-            "Karar": sinyal[
-                "logistic_regression_karari"
-            ],
-            "Başarı Olasılığı (%)": (
-                float(
-                    sinyal[
-                        "logistic_regression_olasiligi"
-                    ]
-                )
-                * 100
-            ),
-        },
-        {
-            "Model": "Decision Tree",
-            "Karar": sinyal["decision_tree_karari"],
-            "Başarı Olasılığı (%)": (
-                float(
-                    sinyal["decision_tree_olasiligi"]
-                )
-                * 100
-            ),
-        },
-        {
-            "Model": "Random Forest",
-            "Karar": sinyal["random_forest_karari"],
-            "Başarı Olasılığı (%)": (
-                float(
-                    sinyal["random_forest_olasiligi"]
-                )
-                * 100
-            ),
-        },
-        {
-            "Model": "K-Nearest Neighbors",
-            "Karar": sinyal["knn_karari"],
-            "Başarı Olasılığı (%)": (
-                float(sinyal["knn_olasiligi"])
-                * 100
-            ),
-        },
-        {
-            "Model": "Gaussian Naive Bayes",
-            "Karar": sinyal["naive_bayes_karari"],
-            "Başarı Olasılığı (%)": (
-                float(
-                    sinyal["naive_bayes_olasiligi"]
-                )
-                * 100
-            ),
-        },
-        {
-            "Model": "Yapay Sinir Ağı",
-            "Karar": sinyal[
-                "yapay_sinir_agi_karari"
-            ],
-            "Başarı Olasılığı (%)": (
-                float(
-                    sinyal[
-                        "yapay_sinir_agi_olasiligi"
-                    ]
-                )
-                * 100
-            ),
-        },
+        (
+            "Logistic Regression",
+            "logistic_regression_karari",
+            "logistic_regression_olasiligi",
+        ),
+        (
+            "Decision Tree",
+            "decision_tree_karari",
+            "decision_tree_olasiligi",
+        ),
+        (
+            "Random Forest",
+            "random_forest_karari",
+            "random_forest_olasiligi",
+        ),
+        (
+            "K-Nearest Neighbors",
+            "knn_karari",
+            "knn_olasiligi",
+        ),
+        (
+            "Gaussian Naive Bayes",
+            "naive_bayes_karari",
+            "naive_bayes_olasiligi",
+        ),
+        (
+            "Yapay Sinir Ağı",
+            "yapay_sinir_agi_karari",
+            "yapay_sinir_agi_olasiligi",
+        ),
     ]
 
-    model_tablosu = pd.DataFrame(model_satirlari)
-    model_tablosu["Başarı Olasılığı (%)"] = (
-        model_tablosu[
-            "Başarı Olasılığı (%)"
-        ].round(2)
+    model_tablosu = pd.DataFrame(
+        [
+            {
+                "Model": model_adi,
+                "Karar": sinyal[karar_sutunu],
+                "Başarı Olasılığı (%)": round(
+                    float(
+                        sinyal[olasilik_sutunu]
+                    )
+                    * 100,
+                    2,
+                ),
+            }
+            for (
+                model_adi,
+                karar_sutunu,
+                olasilik_sutunu,
+            ) in model_satirlari
+        ]
     )
 
     st.subheader("Model kararları")
@@ -719,47 +1046,51 @@ def gecmis_sinyal_sayfasi():
         use_container_width=True,
     )
 
-    st.subheader("Sonradan gerçekleşen sonuç")
+    st.subheader("Sonradan gerçekleşen işlem")
 
-    sonuc_sutunlari = st.columns(4)
+    sonuc = st.columns(4)
 
-    sonuc_sutunlari[0].metric(
+    sonuc[0].metric(
         "Giriş Fiyatı",
         f"{float(sinyal['giris_fiyati']):.4f}",
     )
 
-    sonuc_sutunlari[1].metric(
+    sonuc[1].metric(
         "Çıkış Fiyatı",
         f"{float(sinyal['cikis_fiyati']):.4f}",
     )
 
-    sonuc_sutunlari[2].metric(
+    sonuc[2].metric(
         "Net Getiri",
         f"%{float(sinyal['net_getiri']) * 100:.4f}",
     )
 
-    sonuc_sutunlari[3].metric(
-        "Gerçekleşen Sonuç",
-        (
-            "Başarılı"
-            if sinyal["basarili_mi"]
-            else "Başarısız"
+    sonuc[3].metric(
+        "Veri Dönemi",
+        DONEM_ADLARI.get(
+            sinyal["veri_donemi"],
+            sinyal["veri_donemi"],
         ),
     )
 
     st.caption(
-        f"Giriş zamanı: {sinyal['giris_zamani']} | "
-        f"Çıkış zamanı: {sinyal['cikis_zamani']}"
+        f"Sinyal zamanı: "
+        f"{sinyal['sinyal_zamani_new_york']} | "
+        f"Giriş: {sinyal['giris_zamani']} | "
+        f"Çıkış: {sinyal['cikis_zamani']}"
     )
 
 
-st.title("S&P 500 Sinyal Filtreleme ve Karar Destek Sistemi")
+st.title(
+    "S&P 500 Sinyal Filtreleme ve Karar Destek Sistemi"
+)
 
 sayfa = st.sidebar.radio(
     "Sayfa",
     options=[
         "Genel Bakış",
-        "Model Karşılaştırması",
+        "Yöntem Karşılaştırması",
+        "Model Performansları",
         "Ensemble Analizi",
         "Geçmiş Sinyal İncelemesi",
     ],
@@ -768,7 +1099,10 @@ sayfa = st.sidebar.radio(
 if sayfa == "Genel Bakış":
     genel_bakis_sayfasi()
 
-elif sayfa == "Model Karşılaştırması":
+elif sayfa == "Yöntem Karşılaştırması":
+    yontem_karsilastirma_sayfasi()
+
+elif sayfa == "Model Performansları":
     model_karsilastirma_sayfasi()
 
 elif sayfa == "Ensemble Analizi":
