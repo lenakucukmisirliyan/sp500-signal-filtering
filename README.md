@@ -1,186 +1,203 @@
-# S&P 500 Sinyal Filtreleme Sistemi
+# S&P 500 Sinyal Filtreleme ve Karar Destek Sistemi
 
-Bu proje, S&P 500 hisselerinde teknik analiz ile uretilen alim
-sinyallerinin piyasa ve hisse kosullarina gore filtrelenmesini
-amaclayan bir karar destek sistemidir.
+Bu proje, S&P 500 hisselerinde teknik analizle üretilen alım sinyallerini piyasa ve hisse koşullarına göre sınıflandıran bir karar destek sistemidir.
 
-Calismada filtresiz sinyaller, kural tabanli filtre ve makine
-ogrenmesi yontemleri basari, getiri ve risk olculeri acisindan
-karsilastirilmaktadir.
+Amaç doğrudan hisse fiyatını tahmin etmek değil, oluşmuş bir alım sinyalinin göreli kalitesini değerlendirerek sinyali **AL**, **NÖTR** veya **ALMA** kategorilerinden birine ayırmaktır. Filtresiz sinyaller, kural tabanlı filtre, makine öğrenmesi modelleri ve performans ağırlıklı ensemble yöntemi karşılaştırılmıştır.
 
-## Arastirma Sorusu
+## Araştırma Sorusu
 
-Piyasa ve hisse kosullari kullanilarak dusuk kaliteli alim
-sinyalleri onceden ayirt edilebilir mi?
+Piyasa ve hisse koşulları kullanılarak düşük kaliteli alım sinyalleri önceden ayırt edilebilir mi?
 
-Filtreleme islemi:
+- Filtreleme başarı oranını artırıyor mu?
+- Düşük kaliteli sinyaller ayırt edilebiliyor mu?
+- Ortalama net getiri iyileşiyor mu?
+- Farklı dönemlerde tutarlı sonuç elde ediliyor mu?
+- Model kararları istatistiksel olarak anlamlı mı?
 
-- Basari oranini artiriyor mu?
-- Ortalama net getiriyi iyilestiriyor mu?
-- Riskli sinyalleri azaltabiliyor mu?
-- Farkli zaman donemlerinde tutarli sonuc veriyor mu?
+## Veri Kapsamı
 
-## Veri Kapsami
+- Veri kaynağı: Alpaca SIP
+- Piyasa ve endeks: ABD hisse senetleri, S&P 500
+- Zaman aralığı: 5 dakika
+- Analiz dönemi: 3 Ocak 2023 – 28 Mart 2024
+- Menkul kıymet sayısı: 528
+- Ham fiyat kaydı: 14.373.792
+- Temiz analiz kaydı: 12.060.768
+- Üretilen toplam sinyal: 113.545
+- Model analizinde kullanılan güvenilir sinyal: 105.457
+- Doğrulama ve nihai testlerde değerlendirilen sinyal: 48.868
 
-- Veri kaynagi: Alpaca SIP
-- Piyasa: ABD hisse senetleri
-- Endeks: S&P 500
-- Zaman araligi: 5 dakika
-- Analiz donemi: 3 Ocak 2023 - 28 Mart 2024
-- Ham fiyat verisi: Yaklasik 14,4 milyon satir
-- Temiz analiz verisi: Yaklasik 12,1 milyon satir
-- Uretilen toplam sinyal: 113.545
-- Model analizinde kullanilan sinyal: 105.457
+Analiz döneminde S&P 500 endeksinde bulunmuş şirketler tarihsel endeks üyelikleri dikkate alınarak belirlenmiştir. Böylece yalnızca günümüzde endekste bulunan şirketleri kullanmaktan kaynaklanabilecek hayatta kalma yanlılığı azaltılmıştır.
 
-Analiz doneminde S&P 500 endeksinde bulunmus tum sirketler
-tarihsel endeks uyelikleri dikkate alinarak belirlenmistir.
-Bu sayede yalnizca bugun endekste bulunan sirketlerin
-kullanilmasindan kaynaklanabilecek yanlilik azaltmistir.
+## Kullanılan Teknolojiler
 
-## Kullanilan Teknolojiler
-
-- Python 3.12
-- PostgreSQL 18
-- pgAdmin 4
-- psycopg2
-- Pandas
-- NumPy
-- scikit-learn
-- Alpaca API
-- pandas-market-calendars
+- Python
+- PostgreSQL ve pgAdmin
+- Pandas ve NumPy
+- scikit-learn ve SciPy
+- Streamlit
+- Alpaca API ve pandas-market-calendars
 - Git ve GitHub
 
-## Veri Akisi
+## Projenin Aşamaları
 
-1. Tarihsel S&P 500 sembolleri belirlenir.
-2. Menkul kiymet ve endeks uyelik bilgileri PostgreSQL'e aktarilir.
-3. Alpaca SIP kaynagindan 5 dakikalik fiyat verileri indirilir.
-4. NYSE islem takvimi ve erken kapanis gunleri olusturulur.
-5. Ham fiyat verilerine kalite kontrolleri uygulanir.
-6. Eksigi fazla olan gunler elenir.
-7. Sinirli eksigi bulunan gunlerde eksik barlar doldurulur.
-8. Temiz analiz fiyat tablosu olusturulur.
-9. SMA20-SMA50 kesisiminden temel alim sinyalleri uretilir.
-10. Piyasa ve hisse ozellikleri hesaplanir.
-11. Kural tabanli ve makine ogrenmesi filtreleri uygulanir.
-12. Sonuclar performans, risk ve istatistiksel anlamlilik acisindan karsilastirilir.
+### 1. Veri Toplama
 
-## Veri Kalitesi
+Analiz dönemindeki tarihsel S&P 500 şirketleri belirlenmiş, Alpaca SIP kaynağından beş dakikalık fiyat verileri indirilerek PostgreSQL'e kaydedilmiştir.
 
-Kalite kontrolunde:
+### 2. Veri Kalitesi ve Temizleme
 
-- Tekrarli kayitlar
-- Bos degerler
-- Gecersiz fiyatlar
-- Hatali 5 dakikalik zaman hizalari
-- Normal piyasa seansi disindaki veriler
-- Eksik barlar
-- Erken kapanis gunleri
-- Gunluk veri kapsama oranlari
+Ham veride tekrarlı kayıt, boş değer, geçersiz fiyat, hatalı zaman hizası, seans dışı kayıt, eksik bar ve erken kapanış kontrolleri yapılmıştır. NYSE işlem takvimi kullanılarak her işlem gününde bulunması gereken bar sayısı hesaplanmıştır.
 
-incelenmistir.
+Günler veri kalitesine göre **TUTULDU**, **DOLDURULACAK** veya **ELENDİ** olarak sınıflandırılmıştır. Sınırlı sayıdaki eksik bar önceki kapanış fiyatıyla doldurulmuş ve ayrıca işaretlenmiştir. Bu barlardan etkilenen sinyaller makine öğrenmesi analizinden çıkarılmıştır.
 
-Gunler veri durumuna gore:
+### 3. Temel Alım Sinyali
 
-- TUTULDU
-- DOLDURULACAK
-- ELENDI
+- SMA20, son 20 adet beş dakikalık kapanışın ortalamasıdır.
+- SMA50, son 50 adet beş dakikalık kapanışın ortalamasıdır.
+- SMA20, SMA50'yi aşağıdan yukarı geçtiğinde alım sinyali oluşur.
+- İşleme sinyalden sonraki barın açılış fiyatından girilir.
+- İşlem 12 bar, yaklaşık 60 dakika sonra kapatılır.
+- Giriş ve çıkış aynı işlem gününde gerçekleşir.
+- Aynı hissede çakışan işlemlere izin verilmez.
+- Toplam yüzde 0,10 işlem maliyeti uygulanır.
+- Net getirisi pozitif olan sinyal başarılı kabul edilir.
 
-olarak siniflandirilmistir.
+### 4. Sinyal Filtreleme
 
-Doldurulan barlardan etkilenen sinyaller makine ogrenmesi
-verisinden cikarilmistir.
+#### Kural Tabanlı Filtre
 
-## Temel Alim Sinyali
+SPY'nin aynı işlem günündeki son 60 dakikalık getirisi yüzde -0,10'un altındaysa alım sinyali engellenmiştir. Başka bir ifadeyle genel piyasa son bir saatte yüzde 0,10'dan fazla gerilemişse yeni alım işlemine izin verilmemiştir.
 
-Temel stratejide:
-
-- SMA20, SMA50'yi yukari kestiginde alim sinyali olusur.
-- Isleme sonraki 5 dakikalik barin acilis fiyatindan girilir.
-- Islem 12 bar, yaklasik 60 dakika sonra kapatilir.
-- Giris ve cikis ayni islem gununde gerceklesir.
-- Ayni hissede cakisabilecek islemlere izin verilmez.
-- Toplam yuzde 0,10 islem maliyeti uygulanir.
-- Net getirisi pozitif olan sinyal basarili kabul edilir.
-
-## Kural Tabanli Filtre
-
-SPY'nin ayni islem gunundeki son 60 dakikalik getirisi
-yuzde -0,10 degerinin altindaysa alim sinyali engellenir.
-
-Bu kural, piyasanin kisa surede belirgin bicimde geriledigi
-durumlarda yeni alim islemlerini azaltmayi amaclar.
-
-## Makine Ogrenmesi Modelleri
-
-Asagidaki siniflandirma yontemleri karsilastirilmistir:
+#### Makine Öğrenmesi Modelleri
 
 - Logistic Regression
 - Decision Tree
 - Random Forest
 - K-Nearest Neighbors
 - Gaussian Naive Bayes
-- Yapay sinir agi
+- Yapay sinir ağı
 
-Modeller iki zaman sirali dogrulama doneminde
-karsilastirilmistir. Random Forest iki dogrulama donemi
-birlikte degerlendirildiginde en tutarli basari artisini
-sagladigi icin nihai testte degerlendirilecek makine
-ogrenmesi modeli olarak secilmistir.
+Modeller accuracy, precision, recall, F1, F1-Macro, ROC-AUC, confusion matrix, engelleme oranı, başarı oranı ve ortalama net getiri açısından değerlendirilmiştir.
 
-## Deney Donemleri
+#### AL – NÖTR – ALMA Kararları
 
-Veriler zaman sirasi korunarak dort bolume ayrilmistir:
+Karar eşikleri yalnızca geçmiş eğitim verilerindeki tahmin dağılımından hesaplanmıştır:
 
-- EGITIM
-- DOGRULAMA
-- IKINCIL_DOGRULAMA
-- NIHAI_TEST
+- En düşük yüzde 20: **ALMA**
+- Orta yüzde 60: **NÖTR**
+- En yüksek yüzde 20: **AL**
 
-Random Forest genisleyen egitim pencereli walk-forward
-yontemiyle degerlendirilmistir.
+AL, modelin görece güçlü; NÖTR, belirsiz; ALMA ise görece zayıf bulduğu sinyali gösterir. AL kararı kesin kazanç veya yüzde 50'den yüksek başarı garantisi değildir.
 
-Her adimda yalnizca degerlendirme doneminden onceki veriler
-egitimde kullanilmistir. Filtre esikleri de yalnizca gecmis
-egitim verilerinden hesaplanmistir.
+#### Ağırlıklı Ensemble
 
-## Nihai Test Sonuclari
+Altı modelin kararları performans ağırlıklı ensemble yöntemiyle birleştirilmiştir. Ağırlık puanı `maksimum(ROC-AUC - 0,50, 0)` formülüyle hesaplanmış ve bütün ağırlıkların toplamı 1 olacak şekilde normalize edilmiştir.
 
-Mart 2024 nihai test doneminde:
+- Ağırlıklı AL oyları yüzde 50'yi aşarsa karar AL olur.
+- Ağırlıklı ALMA oyları yüzde 50'yi aşarsa karar ALMA olur.
+- Hiçbiri yüzde 50'yi aşmazsa karar NÖTR olur.
 
-| Yontem        | Engelleme Orani | Basari Orani | Ortalama Net Getiri |
-| ------------- | --------------: | -----------: | ------------------: |
-| Filtresiz     |           %0,00 |       %39,25 |            -%0,0870 |
-| Kural tabanli |           %9,44 |       %39,36 |            -%0,0860 |
-| Random Forest |          %12,30 |       %39,44 |            -%0,0913 |
+İlk doğrulamada geçmiş sonuç bulunmadığından modeller eşit ağırlıkla kullanılmıştır. Sonraki dönemlerde yalnızca geçmiş doğrulama sonuçları kullanılmış; nihai test verileri ağırlık belirlemeye katılmamıştır.
 
-Her iki filtre de nihai testte basari oranini sinirli
-miktarda artirmistir.
+### 5. Performans ve İstatistiksel Analiz
 
-Kural tabanli filtre ortalama net getiriyi cok az
-iyilestirirken Random Forest ortalama net getiriyi
-kotulestirmistir. Nihai testteki farklar istatistiksel
-olarak anlamli bulunmamistir.
+Filtresiz sinyaller, kural tabanlı filtre, Random Forest ve ağırlıklı ensemble; engelleme oranı, başarı oranı, getiri, risk ve istatistiksel anlamlılık açısından karşılaştırılmıştır.
+
+## Deney Dönemleri
+
+- Eğitim: 3 Ocak 2023 – 31 Ağustos 2023
+- Birinci doğrulama: 1 Eylül 2023 – 29 Aralık 2023
+- İkinci doğrulama: 2 Ocak 2024 – 29 Şubat 2024
+- Nihai test: 1 Mart 2024 – 28 Mart 2024
+
+Genişleyen eğitim pencereli walk-forward yöntemi kullanılmıştır. Her adımda yalnızca değerlendirme döneminden önceki veriler eğitimde kullanılarak geleceğe ait bilginin modele sızması engellenmiştir.
+
+## Nihai Test Sonuçları
+
+| Yöntem             | Engelleme Oranı | Başarı Oranı | Ortalama Net Getiri |
+| ------------------ | --------------: | -----------: | ------------------: |
+| Filtresiz          |           %0,00 |       %39,25 |            -%0,0870 |
+| Kural tabanlı      |           %9,44 |       %39,36 |            -%0,0860 |
+| Random Forest      |          %22,68 |       %39,95 |            -%0,0920 |
+| Ağırlıklı ensemble |          %17,16 |   **%40,12** |            -%0,0878 |
+
+Ağırlıklı ensemble filtresize göre başarı oranını 0,87 puan artırmış, Random Forest'tan daha yüksek başarıya daha düşük engelleme oranıyla ulaşmıştır. Ancak ortalama net getiri pozitif olmamıştır.
+
+## Ensemble İstatistiksel Anlamlılık Sonuçları
+
+Nihai test döneminde:
+
+- Kullanılan sinyallerin başarı oranı: %40,12
+- Engellenen sinyallerin başarı oranı: %35,07
+- Başarı farkı: +5,05 puan
+- Başarı oranı p-değeri: 0,000853
+- AL–NÖTR–ALMA ilişki p-değeri: 0,006912
+- Getiri karşılaştırması p-değeri: 0,763590
+
+Ensemble'ın izin verdiği sinyallerin başarı oranı, engellediği sinyallerden istatistiksel olarak anlamlı biçimde yüksektir. Üçlü karar ile gerçekleşen başarı arasında da anlamlı ilişki bulunmuştur. Buna karşın ortalama net getiride anlamlı iyileşme elde edilmemiştir.
 
 ## Temel Bulgular
 
-- Random Forest iki dogrulama doneminde basari oranini
-  tutarli bicimde artirmistir.
-- Yapay sinir agi Random Forest'a yakin sonuclar vermistir.
-- KNN ve tek karar agaci belirgin fayda saglamamistir.
-- Modelin nihai testteki ayirt etme gucu sinirlidir.
-- Basari oranindaki artis her zaman ortalama getiri ve
-  risk iyilesmesine donusmemistir.
-- Yalnizca basari oranina bakmak finansal performansi
-  degerlendirmek icin yeterli degildir.
+- Ensemble üç dönemde de düşük başarı oranına sahip sinyalleri ayırmıştır.
+- Nihai testte AL, NÖTR ve ALMA başarıları sırasıyla %40,54, %40,00 ve %35,07 olmuştur.
+- Random Forest doğrulama dönemlerinde güçlü sonuç vermiştir.
+- Logistic Regression ve Naive Bayes nihai testte üçlü karar sıralamasını korumuştur.
+- KNN belirgin bir ayırt etme gücü göstermemiştir.
+- Başarı artışı ortalama getiri iyileşmesi anlamına gelmemiştir.
+- İşlem maliyeti sonrasında temel stratejinin ortalama getirisi negatif kalmıştır.
 
-## Proje Yapisi
+## Geçmiş Sinyal İncelemesi
 
-```text
-sql/              PostgreSQL sorgulari
-src/              Python kaynak kodlari
-veriler/          Tarihsel S&P 500 uyelik dosyalari
-.env.example      Gerekli ortam degiskenlerinin ornegi
-requirements.txt  Python kutuphaneleri
-README.md         Projenin genel aciklamasi
-```
+Streamlit arayüzünde sembol, tarih ve sinyal saati seçilebilmektedir. Seçilen sinyal için kural tabanlı karar, altı modelin kararları ve olasılıkları, ensemble oyları, nihai karar, giriş ve çıkış fiyatı, net getiri ve gerçekleşen sonuç gösterilmektedir.
+
+## Streamlit Arayüzü
+
+1. Genel Bakış
+2. Yöntem Karşılaştırması
+3. Model Performansları
+4. Ensemble Analizi
+5. Geçmiş Sinyal İncelemesi
+
+## Projenin Çalıştırılması
+
+Sanal ortamı oluşturma:
+
+    python -m venv .venv
+
+Sanal ortamı etkinleştirme:
+
+    .venv\Scripts\Activate.ps1
+
+Kütüphaneleri kurma:
+
+    python -m pip install -r requirements.txt
+
+`.env.example` örnek alınarak `.env` dosyası oluşturulmalı ve PostgreSQL bağlantı bilgileri girilmelidir.
+
+Bağlantıyı kontrol etme:
+
+    python -m src.veritabani
+
+Arayüzü başlatma:
+
+    python -m streamlit run app.py
+
+## Proje Yapısı
+
+    app.py              Streamlit analiz ve karar destek arayüzü
+    src/                Python kaynak kodları
+    sql/                PostgreSQL sorguları ve görünümleri
+    requirements.txt    Python kütüphaneleri
+    .env.example        Örnek PostgreSQL bağlantı ayarları
+    README.md           Projenin açıklaması ve sonuçları
+
+## Sonuç
+
+Ağırlıklı ensemble, başarı ihtimali düşük sinyalleri istatistiksel olarak anlamlı biçimde ayırmıştır. Ancak sınıflandırma başarısı ortalama net getiride anlamlı bir iyileşmeye dönüşmemiştir.
+
+Bu nedenle proje, doğrudan kârlı işlem üreten veya yatırım tavsiyesi veren bir sistem olarak değil, teknik analiz sinyallerinin göreli kalitesini değerlendiren bir karar destek sistemi olarak yorumlanmalıdır.
+
+## Uyarı
+
+Bu proje akademik amaçla hazırlanmıştır. AL, NÖTR ve ALMA kararları yatırım tavsiyesi değildir.
